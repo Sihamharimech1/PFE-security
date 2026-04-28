@@ -34,6 +34,19 @@ class ExecutionEngine:
         if action == "save_report":
             return self.save_report(params)
 
+        # ── Executor actions ────────────────────────────────────────────────
+        if action == "execute_action":
+            return self.run_execute_action(params)
+
+        if action == "delete_data":
+            return self.delete_data(params)
+
+        if action == "write_data":
+            return self.write_data(params)
+
+        if action == "run_command":
+            return self.run_command(params)
+
         return {
             "status": "error",
             "message": f"Unknown action: {action}"
@@ -313,4 +326,93 @@ Return the formatted version using proper headings, bullet points, and spacing."
             "status":   "success",
             "action":   "save_report",
             "filename": filename
+        }
+
+    # ------------------------------------------------------------------ #
+    #  Executor agent actions                                             #
+    #  These are the only actions that modify state or run commands.      #
+    #  All go through RBAC + filter + detection before reaching here.     #
+    # ------------------------------------------------------------------ #
+
+    def run_execute_action(self, params):
+        """General remediation — uses LLM to decide what to do."""
+        instruction = params.get("original_input") or params.get("instruction")
+
+        if not instruction:
+            return {"status": "error", "message": "No instruction provided"}
+
+        prompt = f"""You are a security remediation executor agent.
+You have been cleared to act on the following instruction.
+Describe concisely what action you are taking and confirm it was applied.
+Do NOT ask questions. Just act and confirm.
+
+Instruction: {instruction}"""
+
+        result = self.llm.generate(prompt)
+
+        return {
+            "status":  "success",
+            "action":  "execute_action",
+            "result":  result
+        }
+
+    def delete_data(self, params):
+        """
+        Simulates a delete operation.
+        In production this would call a real DB or file system.
+        For PFE demo: logs the intent without actually deleting anything.
+        """
+        target = params.get("target") or params.get("original_input")
+
+        if not target:
+            return {"status": "error", "message": "No target specified for deletion"}
+
+        print(f"[ExecutorAgent] Simulating DELETE on target: '{target}'")
+
+        return {
+            "status":  "success",
+            "action":  "delete_data",
+            "target":  target,
+            "message": f"[SIMULATED] Data at '{target}' has been deleted."
+        }
+
+    def write_data(self, params):
+        """
+        Simulates writing or patching data.
+        In production this would update a DB record or config file.
+        """
+        target  = params.get("target")  or params.get("original_input")
+        content = params.get("content") or "no content provided"
+
+        if not target:
+            return {"status": "error", "message": "No target specified for write"}
+
+        print(f"[ExecutorAgent] Simulating WRITE to target: '{target}'")
+
+        return {
+            "status":  "success",
+            "action":  "write_data",
+            "target":  target,
+            "content": content,
+            "message": f"[SIMULATED] Data written to '{target}'."
+        }
+
+    def run_command(self, params):
+        """
+        Simulates running a system command.
+        In production this would use subprocess with strict validation.
+        For PFE demo: blocked for safety, prints the command that would run.
+        """
+        command = params.get("command") or params.get("original_input")
+
+        if not command:
+            return {"status": "error", "message": "No command specified"}
+
+        print(f"[ExecutorAgent] Simulating RUN COMMAND: '{command}'")
+
+        return {
+            "status":  "success",
+            "action":  "run_command",
+            "command": command,
+            "message": f"[SIMULATED] Command '{command}' executed in sandbox."
         }
