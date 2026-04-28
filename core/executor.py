@@ -43,13 +43,25 @@ class ExecutionEngine:
     #  direct_answer — uses the original user input, not a blank prompt   #
     # ------------------------------------------------------------------ #
     def direct_answer(self, params):
-        # Always use original_input — this is what the user actually said
         user_input = params.get("original_input") or params.get("prompt")
 
         if not user_input:
             return {
                 "status": "error",
                 "message": "No input provided for direct answer"
+            }
+
+        # Detect report requests and redirect — don't answer them
+        report_keywords = ["write a report", "generate a report", "create a report", "make a report"]
+        if any(kw in user_input.lower() for kw in report_keywords):
+            return {
+                "status": "redirected",
+                "action": "direct_answer",
+                "answer": (
+                    "[AnalystAgent] I can analyze data and answer questions, "
+                    "but writing reports is not within my permissions. "
+                    "Please use the WriterAgent for that."
+                )
             }
 
         prompt = f"""You are a helpful assistant. Answer the following question clearly and concisely.
