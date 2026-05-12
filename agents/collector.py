@@ -1,37 +1,25 @@
+# agents/collector.py
+
 from agents.base_agent import BaseAgent
-from core.llm_provider import LLMProvider
-from core.parser import parse_response
+from langchain_core.messages import HumanMessage
+
 
 class CollectorAgent(BaseAgent):
-    def __init__(self, agent_id, control):
-        super().__init__(agent_id, "collector", control)
-        self.llm = LLMProvider()
-    def think_and_act(self, user_input):
-        prompt = f"""
-        You are a collector agent.
+    """
+    Agent 1 — Collector.
+    Allowed: fetch_api, read_data
+    Forbidden: everything else
+    """
 
-        Allowed actions: fetch_api, read_data
+    def __init__(self, agent_id: str, control):
+        super().__init__(agent_id=agent_id, role="collector", control=control)
 
-        Return JSON:
-        {{
-        "action": "...",
-        "params": {{}}
-        }}
+    def collect(self, topic: str) -> dict:
+        result = self.execute_action("fetch_api", {"topic": topic})
+        if isinstance(result, dict) and result.get("status") == "success":
+            result["data"] = self._call_llm(topic)
+        return result
 
-        Input: {user_input}
-        """
-
-        response = self.llm.generate(prompt)
-
-        print("\n[LLM RAW RESPONSE]")
-        print(response)
-
-        decision = parse_response(response)
-
-        print("\n[PARSED DECISION]")
-        print(decision)
-
-        return self.execute_action(
-            decision["action"],
-            decision["params"]
-        )
+    def _call_llm(self, topic: str) -> str:
+        prompt = f"You are a data collector. Summarize key info about: {topic}. Be concise (3-4 sentences)."
+        return self.llm.invoke([HumanMessage(content=prompt)]).content

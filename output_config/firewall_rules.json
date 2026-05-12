@@ -1,0 +1,7 @@
+{
+  "rule": "BLOCK",
+  "ip": "192.168.1.5",
+  "port": 22,
+  "reason": "Brute-force detected",
+  "applied_at": "2025-04-28T03:11:11Z"
+}
