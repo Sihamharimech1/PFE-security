@@ -1,14 +1,17 @@
+import json
+
 from agents.base_agent import BaseAgent
 from core.llm_provider import LLMProvider
 from core.parser import parse_response
 
 
 class AnalystAgent(BaseAgent):
-    def __init__(self, agent_id, control):
-        super().__init__(agent_id, "analyst", control)
-        self.llm = LLMProvider()
+    def __init__(self, agent_id, control, llm=None, repo=None):
+        super().__init__(agent_id, "analyst", control, llm=llm, repo=repo)
+        self.llm = llm if llm is not None else LLMProvider()
 
     def think_and_act(self, user_input):
+        safe_user_input = json.dumps(user_input)
         prompt = f"""
 You are a routing agent. Your ONLY job is to classify the user input and return the correct action.
 
@@ -32,13 +35,13 @@ If the user asks for a report, use "direct_answer" and tell them to use the Writ
 DEFAULT: If you are unsure, always use "direct_answer".
 NEVER use "analyze_data" if no data was provided.
 
-User input: "{user_input}"
+User input: {safe_user_input}
 
 Return ONLY this JSON, no explanation, no markdown:
 {{
   "action": "direct_answer" | "analyze_data",
   "params": {{
-    "original_input": "{user_input}"
+        "original_input": {safe_user_input}
   }}
 }}
 """

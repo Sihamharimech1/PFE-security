@@ -11,8 +11,8 @@ class CollectorAgent(BaseAgent):
     Forbidden: everything else
     """
 
-    def __init__(self, agent_id: str, control):
-        super().__init__(agent_id=agent_id, role="collector", control=control)
+    def __init__(self, agent_id: str, control, llm=None, repo=None):
+        super().__init__(agent_id=agent_id, role="collector", control=control, llm=llm, repo=repo)
 
     def collect(self, topic: str) -> dict:
         result = self.execute_action("fetch_api", {"topic": topic})

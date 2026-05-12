@@ -12,7 +12,13 @@ class MongoDBClient:
         mongo_uri = os.getenv("MONGO_URI")
         db_name = os.getenv("MONGO_DB_NAME")
 
-        self.client = MongoClient(mongo_uri)
+        if not mongo_uri:
+            raise ValueError("MONGO_URI is not set")
+        if not db_name:
+            raise ValueError("MONGO_DB_NAME is not set")
+
+        self.client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        self.client.admin.command("ping")
         self.db = self.client[db_name]
 
     def get_collection(self, collection_name):

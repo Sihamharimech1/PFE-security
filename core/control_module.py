@@ -9,8 +9,8 @@ from storage.log_repository import LogRepository
 class ControlModule:
     def __init__(self, detection_module, executor=None, log_repository=None):
         self.detection = detection_module
-        self.executor  = executor       if executor       is not None else ExecutionEngine()
         self.logs      = log_repository if log_repository is not None else LogRepository()
+        self.executor  = executor       if executor       is not None else ExecutionEngine(log_repository=self.logs)
 
     def process_request(self, request):
         print("\n[REQUEST RECEIVED BY CONTROL]")

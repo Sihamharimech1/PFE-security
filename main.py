@@ -227,3 +227,72 @@ if os.path.exists("output_config"):
         print(f"  output_config/{f}")
 print(f"  dummy_threat.log deleted: {not os.path.exists('dummy_threat.log')}")
 print("=" * 60)
+
+
+# ════════════════════════════════════════════════════════════════
+# ADMIN SCENARIOS
+# ════════════════════════════════════════════════════════════════
+from agents.admin_agent import AdminAgent
+
+admin = AdminAgent("A5", control)
+
+# Register all agents so admin can manage them
+admin.register_agents([collector, analyst, writer, executor])
+
+
+# ── SCENARIO 16 — Admin suspends the collector ───────────────────────────────
+section("SCENARIO 16 — ADMIN suspends collector  (collector should be blocked after)")
+
+admin.suspend_agent("A1", reason="Anomaly detected — too many fetch_api calls")
+print(f"[VERIFICATION] Collector status: {collector.status}")
+
+# Now try to use the collector — should be blocked
+print("\n  Trying to use collector after suspension...")
+result = collector.execute_action("fetch_api", {"url": "https://httpbin.org/get"})
+print(f"  Result: {result}")
+
+
+# ── SCENARIO 17 — Admin resumes the collector ────────────────────────────────
+section("SCENARIO 17 — ADMIN resumes collector  (collector active again)")
+
+admin.resume_agent("A1")
+print(f"[VERIFICATION] Collector status: {collector.status}")
+
+# Collector should work again
+print("\n  Trying to use collector after resume...")
+collector.execute_action("fetch_api", {"url": "https://httpbin.org/get"})
+
+
+# ── SCENARIO 18 — Admin modifies system config ───────────────────────────────
+section("SCENARIO 18 — ADMIN modifies config  (expect: file updated in output_config/)")
+
+admin.modify_config("anomaly_threshold", 3)
+admin.modify_config("max_agents", 5)
+
+configs = os.listdir("output_config") if os.path.exists("output_config") else []
+print(f"[VERIFICATION] Files in output_config/: {configs}")
+
+
+# ── SCENARIO 19 — Non-admin tries admin action ───────────────────────────────
+section("SCENARIO 19 — RBAC: collector tries suspend_agent  (expect: DENIED)")
+collector.execute_action("suspend_agent", {"target_agent_id": "A2"})
+
+section("SCENARIO 19b — RBAC: analyst tries kill_switch  (expect: DENIED)")
+analyst.execute_action("kill_switch", {})
+
+
+# ── SCENARIO 20 — Admin kill switch ──────────────────────────────────────────
+section("SCENARIO 20 — ADMIN kill switch  (ALL agents stopped)")
+
+admin.kill_switch()
+
+print(f"\n[VERIFICATION] Agent statuses after kill switch:")
+print(f"  Collector : {collector.status}")
+print(f"  Analyst   : {analyst.status}")
+print(f"  Writer    : {writer.status}")
+print(f"  Executor  : {executor.status}")
+
+# Try any agent after kill switch — all should be blocked
+print("\n  Trying collector after kill switch...")
+result = collector.execute_action("fetch_api", {"url": "https://httpbin.org/get"})
+print(f"  Result: {result}")

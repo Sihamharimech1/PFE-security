@@ -10,14 +10,13 @@ RBAC_POLICIES = {
     "executor": ["execute_action", "delete_data", "write_data", "run_command"],
 
     "admin": [
-        "fetch_api",
-        "read_data",
-        "analyze_data",
-        "generate_report",
-        "delete_data",
-        "execute_action",
-        "write_data",
-        "run_command"
+        # All actions from every agent
+        "fetch_api", "read_data",
+        "direct_answer", "analyze_data",
+        "write_report", "format_document", "save_report",
+        "execute_action", "delete_data", "write_data", "run_command",
+        # Admin-exclusive actions — no other agent can do these
+        "suspend_agent", "resume_agent", "kill_switch", "modify_config", "view_logs"
     ]
 }
 

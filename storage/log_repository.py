@@ -58,3 +58,19 @@ class LogRepository:
 
         result = self.collection.insert_one(log_document)
         return result.inserted_id
+
+    def get_recent(self, limit: int = 50) -> list:
+        return list(
+            self.collection
+            .find({}, {"_id": 0})
+            .sort("timestamp", -1)
+            .limit(limit)
+        )
+
+    def get_blocked(self) -> list:
+        return list(
+            self.collection.find(
+                {"blocked.is_blocked": True},
+                {"_id": 0}
+            )
+        )

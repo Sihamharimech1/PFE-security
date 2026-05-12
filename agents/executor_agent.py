@@ -18,9 +18,9 @@ class ExecutorAgent(BaseAgent):
 
     DESTRUCTIVE_ACTIONS = ["delete_data", "run_command"]
 
-    def __init__(self, agent_id: str, control):
-        super().__init__(agent_id=agent_id, role="executor", control=control)
-        self.llm = LLMProvider()
+    def __init__(self, agent_id: str, control, llm=None, repo=None):
+        super().__init__(agent_id=agent_id, role="executor", control=control, llm=llm, repo=repo)
+        self.llm = llm if llm is not None else LLMProvider()
 
     # ── Override: gate fires here, before anything else ────────────────
     def execute_action(self, action_name: str, parameters: dict):
