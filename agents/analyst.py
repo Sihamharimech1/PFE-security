@@ -1,4 +1,4 @@
-import json
+﻿import json
 
 from agents.base_agent import BaseAgent
 from core.llm_provider import LLMProvider
@@ -15,14 +15,14 @@ class AnalystAgent(BaseAgent):
         prompt = f"""
 You are a routing agent. Your ONLY job is to classify the user input and return the correct action.
 
-STRICT RULES — read carefully before deciding:
+STRICT RULES - read carefully before deciding:
 
 1. Use "direct_answer" when:
    - The user asks a simple factual question ("what is X?", "how does X work?")
    - The user greets or makes small talk ("hello", "how are you")
    - The user asks for a definition or explanation
    - The question can be answered in 1-3 sentences
-   - The user asks to "write a report" or "generate a report" — you cannot do that, answer with direct_answer explaining the writer agent handles reports
+   - The user asks to "write a report" or "generate a report" - you cannot do that, answer with direct_answer explaining the writer agent handles reports
 
 2. Use "analyze_data" when:
    - The user explicitly provides data, logs, or text AND asks you to analyze it
@@ -56,7 +56,7 @@ Return ONLY this JSON, no explanation, no markdown:
         # Safety fallback: if LLM still hallucinated a wrong action, correct it
         valid_actions = ["direct_answer", "analyze_data"]
         if decision.get("action") not in valid_actions:
-            print(f"[WARNING] Invalid action '{decision.get('action')}' — falling back to direct_answer")
+            print(f"[WARNING] Invalid action '{decision.get('action')}' - falling back to direct_answer")
             decision["action"] = "direct_answer"
 
         # Always carry original_input forward so executor has context

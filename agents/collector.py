@@ -1,4 +1,4 @@
-# agents/collector.py
+﻿# agents/collector.py
 
 from agents.base_agent import BaseAgent
 from langchain_core.messages import HumanMessage
@@ -6,7 +6,7 @@ from langchain_core.messages import HumanMessage
 
 class CollectorAgent(BaseAgent):
     """
-    Agent 1 — Collector.
+    Agent 1 - Collector.
     Allowed: fetch_api, read_data
     Forbidden: everything else
     """

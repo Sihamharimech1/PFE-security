@@ -1,4 +1,4 @@
-# show_agent_states.py
+﻿# show_agent_states.py
 # Run this anytime to see current state of all agents in MongoDB.
 # Works independently of test_main.py
 
@@ -7,7 +7,7 @@ from storage.agent_repository import AgentRepository
 repo = AgentRepository()
 
 print("\n" + "=" * 60)
-print("  AGENT STATES — from MongoDB")
+print("  AGENT STATES - from MongoDB")
 print("=" * 60)
 
 states = repo.get_all_states()
@@ -17,7 +17,7 @@ if not states:
 else:
     for s in states:
         status = s.get("status", "unknown")
-        icon   = "🟢" if status == "active" else ("🔴" if status == "stopped" else "🟡")
+        icon   = "[ACTIVE]" if status == "active" else ("🔴" if status == "stopped" else "[SUSPENDED]")
         print(f"\n  {icon}  {s['agent_id']} ({s['role']})")
         print(f"      Status     : {status}")
         print(f"      Created    : {s.get('created_at','?')}")

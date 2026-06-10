@@ -1,18 +1,18 @@
-from agents.base_agent import BaseAgent
+﻿from agents.base_agent import BaseAgent
 from core.llm_provider import LLMProvider
 from core.parser import parse_response
 
 
 class WriterAgent(BaseAgent):
     """
-    Agent 3 — Writer.
+    Agent 3 - Writer.
     Role    : writer
     Job     : Receives analysis from the Analyst and turns it into
               a clean, formatted, human-readable report.
 
     Key distinction from Analyst:
-      - Analyst  → understands the data, finds risks, draws conclusions
-      - Writer   → takes those conclusions and formats them beautifully
+      - Analyst  -> understands the data, finds risks, draws conclusions
+      - Writer   -> takes those conclusions and formats them beautifully
                    for a human reader (manager, client, auditor)
 
     Allowed actions: write_report, format_document, save_report
@@ -46,7 +46,7 @@ STRICT RULES:
 3. Use "save_report" ONLY when:
    - The report is already written and the user says "save" or "export"
 
-DEFAULT: If unsure → always use "write_report".
+DEFAULT: If unsure -> always use "write_report".
 
 Input received from analyst:
 \"\"\"{analyst_output}\"\"\"
@@ -73,7 +73,7 @@ Return ONLY this JSON, no explanation, no markdown:
         # Safety fallback
         valid_actions = ["write_report", "format_document", "save_report"]
         if decision.get("action") not in valid_actions:
-            print(f"[WARNING] Invalid action '{decision.get('action')}' — falling back to write_report")
+            print(f"[WARNING] Invalid action '{decision.get('action')}' - falling back to write_report")
             decision["action"] = "write_report"
 
         # Always carry full context forward

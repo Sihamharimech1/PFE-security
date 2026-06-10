@@ -1,4 +1,4 @@
-# agents/base_agent.py
+﻿# agents/base_agent.py
 
 from dotenv import load_dotenv
 from langchain_openai import ChatOpenAI
@@ -36,6 +36,11 @@ class BaseAgent:
         self._status = "active"
         self._repo.register(agent_id, role)
 
+        # Let the control layer know this runtime object exists so automatic
+        # incident responses can suspend or stop it when needed.
+        if hasattr(self.control, "register_agent"):
+            self.control.register_agent(self)
+
     def _set_status(self, new_status: str, reason: str = None):
         old_status = self._status
         self._status = new_status
@@ -65,7 +70,7 @@ class BaseAgent:
         if self.status != "active":
             return {
                 "status": "blocked",
-                "reason": f"Agent '{self.agent_id}' is {self.status} — cannot execute actions."
+                "reason": f"Agent '{self.agent_id}' is {self.status} - cannot execute actions."
             }
         return self.control.process_request({
             "agent_id": self.agent_id,
@@ -76,3 +81,4 @@ class BaseAgent:
 
     def __repr__(self):
         return f"<Agent id={self.agent_id} role={self.role} status={self.status}>"
+

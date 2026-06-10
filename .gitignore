@@ -216,3 +216,7 @@ __marimo__/
 
 # Streamlit
 .streamlit/secrets.toml
+
+# Frontend dashboard
+dashboard/web/node_modules/
+dashboard/web/dist/

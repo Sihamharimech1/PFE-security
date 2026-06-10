@@ -1,12 +1,16 @@
-# storage/agent_repository.py
+﻿# storage/agent_repository.py
 
 from datetime import datetime
 from storage.mongo_client import MongoDBClient
 
 class AgentRepository:
 
-    def __init__(self):
-        client = MongoDBClient()
+    def __init__(self, mongo_timeout_ms=5000, connect_timeout_ms=None, socket_timeout_ms=None):
+        client = MongoDBClient(
+            server_selection_timeout_ms=mongo_timeout_ms,
+            connect_timeout_ms=connect_timeout_ms,
+            socket_timeout_ms=socket_timeout_ms,
+        )
         self.col = client.get_collection("agent_states")
         self.col.create_index("agent_id", unique=True)
 
@@ -38,7 +42,7 @@ class AgentRepository:
                 "$push": {"history": history_entry}
             }
         )
-        print(f"[AgentRepository] '{agent_id}' → {new_status}")
+        print(f"[AgentRepository] '{agent_id}' -> {new_status}")
 
     def get_state(self, agent_id: str) -> dict:
         return self.col.find_one({"agent_id": agent_id}, {"_id": 0}) or {}

@@ -1,4 +1,4 @@
-# agents/admin_agent.py
+﻿# agents/admin_agent.py
 
 from agents.base_agent import BaseAgent
 from core.llm_provider import LLMProvider
@@ -7,7 +7,7 @@ from core.parser import parse_response
 
 class AdminAgent(BaseAgent):
     """
-    Agent 5 — Admin.
+    Agent 5 - Admin.
     Role : admin
 
     The only agent that can:
@@ -31,7 +31,7 @@ class AdminAgent(BaseAgent):
     def __init__(self, agent_id: str, control, llm=None, repo=None):
         super().__init__(agent_id=agent_id, role="admin", control=control, llm=llm, repo=repo)
         self.llm            = llm if llm is not None else LLMProvider()
-        self.managed_agents = {}   # registry: agent_id → agent object
+        self.managed_agents = {}   # registry: agent_id -> agent object
 
     def register_agents(self, agents: list):
         """
@@ -46,7 +46,7 @@ class AdminAgent(BaseAgent):
 
     def suspend_agent(self, target_agent_id: str, reason: str = "admin order") -> dict:
         """
-        Suspend an agent — it can no longer execute actions.
+        Suspend an agent - it can no longer execute actions.
         Passes through control module for logging.
         """
         result = self.execute_action("suspend_agent", {
@@ -59,7 +59,7 @@ class AdminAgent(BaseAgent):
             self.managed_agents[target_agent_id].suspend(reason)
             print(f"[AdminAgent] Agent '{target_agent_id}' is now SUSPENDED. Reason: {reason}")
         else:
-            print(f"[AdminAgent] WARNING — '{target_agent_id}' not found in registry.")
+            print(f"[AdminAgent] WARNING - '{target_agent_id}' not found in registry.")
 
         return result
 
@@ -75,19 +75,19 @@ class AdminAgent(BaseAgent):
             self.managed_agents[target_agent_id].resume()
             print(f"[AdminAgent] Agent '{target_agent_id}' is now ACTIVE again.")
         else:
-            print(f"[AdminAgent] WARNING — '{target_agent_id}' not found in registry.")
+            print(f"[AdminAgent] WARNING - '{target_agent_id}' not found in registry.")
 
         return result
 
     def kill_switch(self) -> dict:
         """
-        Emergency stop — suspends ALL agents immediately.
+        Emergency stop - suspends ALL agents immediately.
         Used when a systemic threat is detected.
         """
-        print("\n" + "🔴 " * 20)
+        print("\n" + "[STOP] " * 20)
         print("  [KILL SWITCH ACTIVATED]")
         print("  ALL agents are being stopped.")
-        print("🔴 " * 20)
+        print("[STOP] " * 20)
 
         result = self.execute_action("kill_switch", {
             "reason": "Emergency kill switch triggered by AdminAgent"
@@ -95,7 +95,7 @@ class AdminAgent(BaseAgent):
 
         for agent_id, agent in self.managed_agents.items():
             agent.stop()
-            print(f"  [KILL SWITCH] '{agent_id}' → stopped")
+            print(f"  [KILL SWITCH] '{agent_id}' -> stopped")
 
         print("[AdminAgent] All agents stopped.")
         return result
@@ -126,17 +126,17 @@ class AdminAgent(BaseAgent):
 You are a routing agent for a system Administrator. Classify the instruction.
 
 Available actions:
-- "suspend_agent"  → instruction says suspend / block / disable a specific agent
-- "resume_agent"   → instruction says resume / reactivate / unblock a specific agent
-- "kill_switch"    → instruction says stop all / emergency / shutdown everything
-- "modify_config"  → instruction says change / update a config setting
-- "view_logs"      → instruction says show / view / read logs
-- "analyze_data"   → instruction asks to analyze something
-- "fetch_api"      → instruction asks to fetch external data
+- "suspend_agent"  -> instruction says suspend / block / disable a specific agent
+- "resume_agent"   -> instruction says resume / reactivate / unblock a specific agent
+- "kill_switch"    -> instruction says stop all / emergency / shutdown everything
+- "modify_config"  -> instruction says change / update a config setting
+- "view_logs"      -> instruction says show / view / read logs
+- "analyze_data"   -> instruction asks to analyze something
+- "fetch_api"      -> instruction asks to fetch external data
 
 Known agents: {agent_ids}
 
-DEFAULT: If unsure → "view_logs"
+DEFAULT: If unsure -> "view_logs"
 
 Instruction: "{instruction}"
 
@@ -160,7 +160,7 @@ Return ONLY this JSON:
                  "fetch_api", "delete_data", "write_data"]
 
         if decision.get("action") not in valid:
-            print(f"[WARNING] Invalid action — falling back to view_logs")
+            print(f"[WARNING] Invalid action - falling back to view_logs")
             decision["action"] = "view_logs"
 
         if not isinstance(decision.get("params"), dict):
@@ -191,5 +191,5 @@ Return ONLY this JSON:
                 params.get("value", None)
             )
 
-        # For everything else — go through normal execute_action
+        # For everything else - go through normal execute_action
         return self.execute_action(action, params)

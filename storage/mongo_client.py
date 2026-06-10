@@ -8,7 +8,12 @@ load_dotenv()
 
 
 class MongoDBClient:
-    def __init__(self):
+    def __init__(
+        self,
+        server_selection_timeout_ms=5000,
+        connect_timeout_ms=None,
+        socket_timeout_ms=None,
+    ):
         mongo_uri = os.getenv("MONGO_URI")
         db_name = os.getenv("MONGO_DB_NAME")
 
@@ -17,7 +22,12 @@ class MongoDBClient:
         if not db_name:
             raise ValueError("MONGO_DB_NAME is not set")
 
-        self.client = MongoClient(mongo_uri, serverSelectionTimeoutMS=5000)
+        self.client = MongoClient(
+            mongo_uri,
+            serverSelectionTimeoutMS=server_selection_timeout_ms,
+            connectTimeoutMS=connect_timeout_ms or server_selection_timeout_ms,
+            socketTimeoutMS=socket_timeout_ms or server_selection_timeout_ms,
+        )
         self.client.admin.command("ping")
         self.db = self.client[db_name]
 

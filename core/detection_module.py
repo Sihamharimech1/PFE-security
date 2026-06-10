@@ -1,23 +1,171 @@
-# core/detection_module.py
+﻿# core/detection_module.py
 
-FREQUENCY_THRESHOLD = 5  # alert triggers on the 5th call and beyond
+from collections import defaultdict, deque
+import time
+
 
 class DetectionModule:
-    def __init__(self):
-        self.history = {}
+    """
+    Lightweight rule-based detector used by the prototype.
 
-    def analyze(self, request):
-        agent  = request["agent_id"]
+    Rules stay intentionally simple, but they now use sliding windows so an
+    anomaly reflects recent behaviour rather than an ever-growing counter.
+    """
+
+    def __init__(
+        self,
+        frequency_threshold: int = 5,
+        frequency_window_seconds: int = 60,
+        role_violation_threshold: int = 3,
+        role_violation_window_seconds: int = 120,
+        clock=None,
+    ):
+        self.frequency_threshold = frequency_threshold
+        self.frequency_window_seconds = frequency_window_seconds
+        self.role_violation_threshold = role_violation_threshold
+        self.role_violation_window_seconds = role_violation_window_seconds
+        self.clock = clock or time.monotonic
+
+        self.action_history = defaultdict(deque)
+        self.role_violation_history = defaultdict(deque)
+
+    @staticmethod
+    def _event(
+        *,
+        status: str,
+        agent_id: str,
+        rule_id: str = None,
+        severity: str = None,
+        recommended_action: str = "NONE",
+        details: dict = None,
+    ) -> dict:
+        return {
+            "status": status,
+            "agent_id": agent_id,
+            "rule_id": rule_id,
+            "severity": severity,
+            "recommended_action": recommended_action,
+            "details": details or {},
+        }
+
+    @staticmethod
+    def _prune(window, now: float, window_seconds: int):
+        while window and now - window[0] > window_seconds:
+            window.popleft()
+
+    def analyze(self, request: dict) -> dict:
+        """
+        Analyze an allowed action for excessive repetition.
+        """
+        agent = request["agent_id"]
         action = request["action"]
+        now = self.clock()
 
         key = (agent, action)
-        self.history[key] = self.history.get(key, 0) + 1
-        count = self.history[key]
+        history = self.action_history[key]
+        history.append(now)
+        self._prune(history, now, self.frequency_window_seconds)
+        count = len(history)
 
-        print(f"[DETECTION] {agent} | '{action}' | call #{count}")
+        print(
+            f"[DETECTION] {agent} | '{action}' | "
+            f"{count} call(s) in {self.frequency_window_seconds}s window"
+        )
 
-        if count >= FREQUENCY_THRESHOLD:
-            print(f"[ANOMALY DETECTED] '{action}' called {count} times by {agent} — threshold is {FREQUENCY_THRESHOLD}")
-            return "ANOMALY"
+        if count >= self.frequency_threshold:
+            print(
+                f"[ANOMALY DETECTED] '{action}' called {count} times by {agent} "
+                f"in {self.frequency_window_seconds}s - threshold is {self.frequency_threshold}"
+            )
+            return self._event(
+                status="ANOMALY",
+                agent_id=agent,
+                rule_id="EXCESSIVE_FREQUENCY",
+                severity="MEDIUM",
+                recommended_action="LIMIT",
+                details={
+                    "action": action,
+                    "count": count,
+                    "threshold": self.frequency_threshold,
+                    "window_seconds": self.frequency_window_seconds,
+                },
+            )
 
-        return "NORMAL"
+        return self._event(
+            status="NORMAL",
+            agent_id=agent,
+            details={
+                "action": action,
+                "count": count,
+                "threshold": self.frequency_threshold,
+                "window_seconds": self.frequency_window_seconds,
+            },
+        )
+
+    def record_role_violation(self, request: dict) -> dict:
+        """
+        Track repeated RBAC denials for the same agent.
+        """
+        agent = request["agent_id"]
+        action = request["action"]
+        now = self.clock()
+
+        history = self.role_violation_history[agent]
+        history.append(now)
+        self._prune(history, now, self.role_violation_window_seconds)
+        count = len(history)
+
+        print(
+            f"[DETECTION] {agent} | RBAC violation '{action}' | "
+            f"{count} violation(s) in {self.role_violation_window_seconds}s window"
+        )
+
+        if count >= self.role_violation_threshold:
+            print(
+                f"[ANOMALY DETECTED] {agent} reached {count} RBAC violation(s) "
+                f"in {self.role_violation_window_seconds}s - threshold is {self.role_violation_threshold}"
+            )
+            return self._event(
+                status="ANOMALY",
+                agent_id=agent,
+                rule_id="REPEATED_ROLE_VIOLATION",
+                severity="HIGH",
+                recommended_action="SUSPEND",
+                details={
+                    "action": action,
+                    "count": count,
+                    "threshold": self.role_violation_threshold,
+                    "window_seconds": self.role_violation_window_seconds,
+                },
+            )
+
+        return self._event(
+            status="NORMAL",
+            agent_id=agent,
+            details={
+                "action": action,
+                "count": count,
+                "threshold": self.role_violation_threshold,
+                "window_seconds": self.role_violation_window_seconds,
+            },
+        )
+
+    def record_malicious_input(self, request: dict, pattern: str) -> dict:
+        """
+        Treat malicious input as an immediate high-severity event.
+
+        The request itself is already blocked by the control module. We keep the
+        recommended action at ALERT because hostile external input does not, by
+        itself, prove that the receiving agent is compromised.
+        """
+        agent = request["agent_id"]
+        print(f"[ANOMALY DETECTED] malicious input for {agent}: {pattern}")
+        return self._event(
+            status="ANOMALY",
+            agent_id=agent,
+            rule_id="MALICIOUS_INPUT_PATTERN",
+            severity="HIGH",
+            recommended_action="ALERT",
+            details={"pattern": pattern, "action": request["action"]},
+        )
+
