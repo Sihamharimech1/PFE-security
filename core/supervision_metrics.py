@@ -14,6 +14,9 @@ SEVERITY_POINTS = {
 }
 
 
+RISK_LEVELS = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+
 def _nested(document, *keys, default=None):
     value = document
     for key in keys:
@@ -25,6 +28,11 @@ def _nested(document, *keys, default=None):
 
 def _rate(part, total):
     return round((part / total) * 100, 2) if total else 0.0
+
+
+def _fallback_risk_score(log):
+    severity = _nested(log, "security", "severity", default="LOW")
+    return SEVERITY_POINTS.get(severity, 1) * 10
 
 
 def calculate_supervision_metrics(logs, agents):
@@ -43,6 +51,17 @@ def calculate_supervision_metrics(logs, agents):
     detection_counts = Counter(
         _nested(log, "security", "detection_status", default="UNKNOWN") for log in logs
     )
+    risk_level_counts = Counter(
+        _nested(log, "security", "risk_level", default="LOW") for log in logs
+    )
+    for level in RISK_LEVELS:
+        risk_level_counts.setdefault(level, 0)
+
+    risk_scores = [
+        _nested(log, "security", "risk_score", default=_fallback_risk_score(log))
+        for log in logs
+    ]
+    risk_scores = [score for score in risk_scores if isinstance(score, (int, float))]
 
     blocked_count = sum(1 for log in logs if _nested(log, "blocked", "is_blocked") is True)
     anomaly_count = detection_counts.get("ANOMALY", 0)
@@ -52,8 +71,12 @@ def calculate_supervision_metrics(logs, agents):
     for log in logs:
         agent_id = _nested(log, "agent", "id", default="unknown")
         severity = _nested(log, "security", "severity", default="LOW")
+        risk_score = _nested(log, "security", "risk_score", default=None)
         events_by_agent[agent_id] += 1
-        risk_by_agent[agent_id] += SEVERITY_POINTS.get(severity, 1)
+        if isinstance(risk_score, (int, float)):
+            risk_by_agent[agent_id] += risk_score
+        else:
+            risk_by_agent[agent_id] += SEVERITY_POINTS.get(severity, 1) * 10
         if _nested(log, "blocked", "is_blocked") is True:
             risk_by_agent[agent_id] += 1
         if _nested(log, "security", "detection_status") == "ANOMALY":
@@ -76,6 +99,12 @@ def calculate_supervision_metrics(logs, agents):
         "blocked_rate": _rate(blocked_count, total_logs),
         "anomaly_rate": _rate(anomaly_count, total_logs),
         "severity_counts": dict(severity_counts),
+        "risk_level_counts": dict(risk_level_counts),
+        "average_risk_score": round(sum(risk_scores) / len(risk_scores), 2)
+        if risk_scores
+        else 0.0,
+        "max_risk_score": max(risk_scores) if risk_scores else 0,
+        "high_risk_events": sum(1 for score in risk_scores if score >= 60),
         "incident_counts": dict(incident_counts),
         "detection_counts": dict(detection_counts),
         "top_actions": [

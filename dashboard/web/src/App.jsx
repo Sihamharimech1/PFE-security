@@ -1,9 +1,10 @@
 import { useEffect, useMemo, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
-import { loadDashboard, updateAgentStatus } from "./lib/dashboardApi";
+import { loadDashboard, updateAgentStatus, updateIncidentStatus } from "./lib/dashboardApi";
 import { AgentsPage } from "./pages/AgentsPage";
 import { AlertsPage } from "./pages/AlertsPage";
 import { ActivityPage } from "./pages/ActivityPage";
+import { IncidentsPage } from "./pages/IncidentsPage";
 import { LogsPage } from "./pages/LogsPage";
 import { OverviewPage } from "./pages/OverviewPage";
 import { ScenariosPage } from "./pages/ScenariosPage";
@@ -73,6 +74,17 @@ export default function App() {
     }
   }
 
+  async function handleIncidentStatusChange(incidentId, status) {
+    setStatusMessage(`Updating ${incidentId}...`);
+    try {
+      await updateIncidentStatus(incidentId, status);
+      await refreshDashboard();
+      setStatusMessage(`${incidentId} changed to ${status}.`);
+    } catch (error) {
+      setStatusMessage(error.message);
+    }
+  }
+
   if (!data) {
     return (
       <main className="app-shell flex min-h-screen items-center justify-center">
@@ -85,10 +97,21 @@ export default function App() {
   }
 
   const pages = {
-    overview: <OverviewPage data={data} />,
+    overview: <OverviewPage data={data} onOpenIncidents={() => setPage("incidents")} />,
     logs: <LogsPage logs={data.logs} />,
-    alerts: <AlertsPage alerts={data.alerts} />,
-    agents: <AgentsPage agents={data.agents} onStatusChange={handleAgentStatusChange} />,
+    alerts: (
+      <AlertsPage
+        alerts={data.alerts}
+        incidents={data.incidents ?? []}
+      />
+    ),
+    incidents: (
+      <IncidentsPage
+        incidents={data.incidents ?? []}
+        onIncidentStatusChange={handleIncidentStatusChange}
+      />
+    ),
+    agents: <AgentsPage agents={data.agents} logs={data.logs} onStatusChange={handleAgentStatusChange} />,
     activity: <ActivityPage logs={data.logs} />,
     scenarios: <ScenariosPage scenarios={data.scenarios} />,
   };

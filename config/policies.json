@@ -1,0 +1,125 @@
+{
+  "version": "1.0",
+  "roles": {
+    "collector": {
+      "description": "Collects external/internal data but cannot modify systems.",
+      "allowed_actions": ["fetch_api", "read_data"]
+    },
+    "analyst": {
+      "description": "Analyzes data and answers questions but cannot write reports or execute actions.",
+      "allowed_actions": ["read_data", "direct_answer", "analyze_data"]
+    },
+    "writer": {
+      "description": "Formats and saves reports from approved analysis.",
+      "allowed_actions": ["read_data", "write_report", "format_document", "save_report"]
+    },
+    "executor": {
+      "description": "Performs controlled remediation actions.",
+      "allowed_actions": ["execute_action", "delete_data", "write_data", "run_command"]
+    },
+    "admin": {
+      "description": "Administrative role with global supervision and emergency permissions.",
+      "inherits": ["collector", "analyst", "writer", "executor"],
+      "allowed_actions": ["suspend_agent", "resume_agent", "kill_switch", "modify_config", "view_logs"]
+    }
+  },
+  "actions": {
+    "fetch_api": {
+      "sensitivity": "medium",
+      "category": "collection"
+    },
+    "read_data": {
+      "sensitivity": "low",
+      "category": "collection"
+    },
+    "direct_answer": {
+      "sensitivity": "low",
+      "category": "analysis"
+    },
+    "analyze_data": {
+      "sensitivity": "low",
+      "category": "analysis"
+    },
+    "generate_report": {
+      "sensitivity": "low",
+      "category": "reporting"
+    },
+    "write_report": {
+      "sensitivity": "low",
+      "category": "reporting"
+    },
+    "format_document": {
+      "sensitivity": "low",
+      "category": "reporting"
+    },
+    "save_report": {
+      "sensitivity": "medium",
+      "category": "reporting"
+    },
+    "execute_action": {
+      "sensitivity": "medium",
+      "category": "remediation"
+    },
+    "delete_data": {
+      "sensitivity": "high",
+      "category": "remediation",
+      "requires_safe_scope": true
+    },
+    "write_data": {
+      "sensitivity": "medium",
+      "category": "remediation"
+    },
+    "run_command": {
+      "sensitivity": "high",
+      "category": "execution",
+      "requires_whitelist": true
+    },
+    "suspend_agent": {
+      "sensitivity": "high",
+      "category": "administration",
+      "admin_only": true
+    },
+    "resume_agent": {
+      "sensitivity": "high",
+      "category": "administration",
+      "admin_only": true
+    },
+    "kill_switch": {
+      "sensitivity": "critical",
+      "category": "administration",
+      "admin_only": true
+    },
+    "modify_config": {
+      "sensitivity": "high",
+      "category": "administration",
+      "admin_only": true
+    },
+    "view_logs": {
+      "sensitivity": "medium",
+      "category": "administration",
+      "admin_only": true
+    }
+  },
+  "defaults": {
+    "unknown_action_sensitivity": "medium"
+  },
+  "execution": {
+    "network": {
+      "allowed_schemes": ["http", "https"],
+      "blocked_hosts": ["localhost"],
+      "block_private_ips": true,
+      "timeout_seconds": 10,
+      "content_preview_chars": 800
+    },
+    "filesystem": {
+      "read_dirs": ["sample_logs", "output_reports", "output_config", "sandbox"],
+      "write_dirs": ["output_reports", "output_config", "sandbox"],
+      "delete_dirs": ["output_reports", "sandbox"],
+      "allow_dummy_delete_in_workspace": true
+    },
+    "commands": {
+      "allowed": ["whoami", "hostname", "ping", "ipconfig", "ifconfig", "echo"],
+      "timeout_seconds": 5
+    }
+  }
+}

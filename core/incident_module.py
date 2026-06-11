@@ -1,6 +1,7 @@
 # core/incident_module.py
 
 import time
+from core.models import IncidentResponse
 
 
 class IncidentModule:
@@ -14,9 +15,10 @@ class IncidentModule:
     - KILL_SWITCH: stop all registered agents
     """
 
-    def __init__(self, throttle_seconds: float = 2.0, clock=None):
+    def __init__(self, throttle_seconds: float = 2.0, clock=None, incident_repository=None):
         self.throttle_seconds = throttle_seconds
         self.clock = clock or time.monotonic
+        self.repository = incident_repository
         self._agents = {}
         self._limited_until = {}
 
@@ -42,14 +44,35 @@ class IncidentModule:
     def is_limited(self, agent_id: str) -> bool:
         return self.get_limit_remaining(agent_id) > 0
 
+    def _with_lifecycle(self, event: dict, response: dict) -> dict:
+        if self.repository is None:
+            return response
+
+        try:
+            incident_id = self.repository.create_incident(event, response)
+            return {
+                **response,
+                "incident_id": incident_id,
+                "lifecycle_status": "OPEN",
+            }
+        except Exception as exc:
+            return {
+                **response,
+                "incident_persistence_error": f"{type(exc).__name__}: {exc}",
+            }
+
+    @staticmethod
+    def _response(**kwargs):
+        return IncidentResponse(**kwargs).to_dict()
+
     def handle(self, event: dict) -> dict:
         if not isinstance(event, dict) or event.get("status") != "ANOMALY":
-            return {
-                "status": "NO_ACTION",
-                "action": "NONE",
-                "applied": False,
-                "agent_id": event.get("agent_id") if isinstance(event, dict) else None,
-            }
+            return self._response(
+                status="NO_ACTION",
+                action="NONE",
+                applied=False,
+                agent_id=event.get("agent_id") if isinstance(event, dict) else None,
+            )
 
         agent_id = event.get("agent_id")
         recommended_action = event.get("recommended_action", "ALERT")
@@ -61,54 +84,54 @@ class IncidentModule:
                 f"[INCIDENT] LIMIT applied to {agent_id} "
                 f"for {self.throttle_seconds:.1f}s"
             )
-            return {
-                "status": "LIMITED",
-                "action": "LIMIT",
-                "applied": True,
-                "agent_id": agent_id,
-                "severity": severity,
-                "duration_seconds": self.throttle_seconds,
-            }
+            return self._with_lifecycle(event, self._response(
+                status="LIMITED",
+                action="LIMIT",
+                applied=True,
+                agent_id=agent_id,
+                severity=severity,
+                duration_seconds=self.throttle_seconds,
+            ))
 
         if recommended_action == "SUSPEND":
             agent = self._agents.get(agent_id)
             if agent is not None:
                 agent.suspend(f"Automatic incident response: {event.get('rule_id')}")
                 print(f"[INCIDENT] SUSPEND applied to {agent_id}")
-                return {
-                    "status": "SUSPENDED",
-                    "action": "SUSPEND",
-                    "applied": True,
-                    "agent_id": agent_id,
-                    "severity": severity,
-                }
+                return self._with_lifecycle(event, self._response(
+                    status="SUSPENDED",
+                    action="SUSPEND",
+                    applied=True,
+                    agent_id=agent_id,
+                    severity=severity,
+                ))
 
             print(f"[INCIDENT] SUSPEND requested for {agent_id}, but agent is not registered")
-            return {
-                "status": "SUSPEND_REQUESTED",
-                "action": "SUSPEND",
-                "applied": False,
-                "agent_id": agent_id,
-                "severity": severity,
-            }
+            return self._with_lifecycle(event, self._response(
+                status="SUSPEND_REQUESTED",
+                action="SUSPEND",
+                applied=False,
+                agent_id=agent_id,
+                severity=severity,
+            ))
 
         if recommended_action == "KILL_SWITCH":
             for agent in self._agents.values():
                 agent.stop()
             print("[INCIDENT] KILL_SWITCH applied to all registered agents")
-            return {
-                "status": "KILL_SWITCH_APPLIED",
-                "action": "KILL_SWITCH",
-                "applied": True,
-                "agent_id": agent_id,
-                "severity": severity,
-            }
+            return self._with_lifecycle(event, self._response(
+                status="KILL_SWITCH_APPLIED",
+                action="KILL_SWITCH",
+                applied=True,
+                agent_id=agent_id,
+                severity=severity,
+            ))
 
         print(f"[INCIDENT] ALERT recorded for {agent_id}")
-        return {
-            "status": "ALERTED",
-            "action": "ALERT",
-            "applied": True,
-            "agent_id": agent_id,
-            "severity": severity,
-        }
+        return self._with_lifecycle(event, self._response(
+            status="ALERTED",
+            action="ALERT",
+            applied=True,
+            agent_id=agent_id,
+            severity=severity,
+        ))

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
 
@@ -6,7 +7,11 @@ function formatDate(value) {
   return new Date(value).toLocaleString();
 }
 
-export function AlertsPage({ alerts }) {
+export function AlertsPage({ alerts, incidents = [] }) {
+  const incidentById = useMemo(() => {
+    return new Map(incidents.map((incident) => [incident.incident_id, incident]));
+  }, [incidents]);
+
   return (
     <SectionCard title="Alerts" subtitle="All security-relevant events, sorted newest first">
       {!alerts.length ? (
@@ -21,24 +26,35 @@ export function AlertsPage({ alerts }) {
                 <th>Role</th>
                 <th>Action</th>
                 <th>Detection rule</th>
+                <th>Risk</th>
                 <th>Blocked reason</th>
                 <th>Response</th>
+                <th>Incident</th>
+                <th>Lifecycle</th>
                 <th>Final status</th>
               </tr>
             </thead>
             <tbody>
-              {alerts.map((alert, index) => (
-                <tr key={`${alert.timestamp}-${index}`}>
-                  <td className="text-[var(--muted)]">{formatDate(alert.timestamp)}</td>
-                  <td>{alert.agent.id}</td>
-                  <td className="text-[var(--muted)]">{alert.agent.role}</td>
-                  <td className="font-mono text-xs">{alert.request.action}</td>
-                  <td>{alert.security.detection_rule ?? "-"}</td>
-                  <td>{alert.blocked.reason ?? "-"}</td>
-                  <td><SeverityBadge action={alert.security.incident_action} /></td>
-                  <td>{alert.final_status}</td>
-                </tr>
-              ))}
+              {alerts.map((alert, index) => {
+                const incidentId = alert.security?.incident_id;
+                const incident = incidentById.get(incidentId);
+
+                return (
+                  <tr key={`${alert.timestamp}-${index}`}>
+                    <td className="text-[var(--muted)]">{formatDate(alert.timestamp)}</td>
+                    <td>{alert.agent?.id ?? "-"}</td>
+                    <td className="text-[var(--muted)]">{alert.agent?.role ?? "-"}</td>
+                    <td className="font-mono text-xs">{alert.request?.action ?? "-"}</td>
+                    <td>{alert.security?.detection_rule ?? "-"}</td>
+                    <td>{alert.security?.risk_level ?? alert.security?.severity ?? "-"}</td>
+                    <td>{alert.blocked?.reason ?? "-"}</td>
+                    <td><SeverityBadge action={alert.security?.incident_action} /></td>
+                    <td className="font-mono text-xs">{incidentId ?? "-"}</td>
+                    <td>{incident?.status ?? alert.security?.incident_lifecycle_status ?? "-"}</td>
+                    <td>{alert.final_status ?? "-"}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>

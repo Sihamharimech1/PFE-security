@@ -1,3 +1,4 @@
+import { useEffect, useMemo, useState } from "react";
 import { KpiCard } from "../components/KpiCard";
 import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
@@ -14,13 +15,42 @@ function short(value, max = 52) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
-export function OverviewPage({ data }) {
+export function OverviewPage({ data, onOpenIncidents }) {
+  const unresolvedIncidents = useMemo(() => {
+    return (data.incidents ?? []).filter((incident) =>
+      ["OPEN", "ACKNOWLEDGED"].includes(incident.status)
+    );
+  }, [data.incidents]);
+  const [showIncidentNotice, setShowIncidentNotice] = useState(false);
+
+  useEffect(() => {
+    if (!unresolvedIncidents.length) {
+      setShowIncidentNotice(false);
+      return;
+    }
+
+    setShowIncidentNotice(true);
+    const timer = window.setTimeout(() => setShowIncidentNotice(false), 5000);
+    return () => window.clearTimeout(timer);
+  }, [unresolvedIncidents.length]);
+
   const recentLogs = data.logs.slice(0, 10);
   const recentAlerts = data.alerts.slice(0, 8);
   const agents = data.agents.slice(0, 8);
 
   return (
     <div className="space-y-5">
+      {showIncidentNotice ? (
+        <div className="system-note flex items-center justify-between gap-4">
+          <span>
+            You have {unresolvedIncidents.length} incident{unresolvedIncidents.length > 1 ? "s" : ""} to solve.
+          </span>
+          <button className="table-action" type="button" onClick={onOpenIncidents}>
+            View incidents
+          </button>
+        </div>
+      ) : null}
+
       <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
         <KpiCard label="Logs" value={data.overview.total_logs} hint="latest live events" accent="blue" />
         <KpiCard label="Alerts" value={data.overview.active_alerts} hint="events requiring attention" accent="amber" />

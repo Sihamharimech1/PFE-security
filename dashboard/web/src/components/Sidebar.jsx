@@ -2,6 +2,7 @@ const items = [
   { id: "overview", label: "Overview" },
   { id: "logs", label: "Logs" },
   { id: "alerts", label: "Alerts" },
+  { id: "incidents", label: "Incidents" },
   { id: "agents", label: "Agents" },
   { id: "activity", label: "Activity" },
   { id: "scenarios", label: "Scenarios" },

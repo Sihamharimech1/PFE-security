@@ -72,7 +72,7 @@ export function LogsPage({ logs }) {
   }, [logs, agent, action, eventType, query, limit]);
 
   useEffect(() => {
-    if (!filteredLogs.length) {
+    if (!filteredLogs.length || !selectedLog) {
       setSelectedLog(null);
       return;
     }
@@ -81,8 +81,8 @@ export function LogsPage({ logs }) {
       (log) => log.timestamp === selectedLog?.timestamp && log.request?.action === selectedLog?.request?.action
     );
 
-    if (!selectedLog || !selectedStillVisible) {
-      setSelectedLog(filteredLogs[0]);
+    if (!selectedStillVisible) {
+      setSelectedLog(null);
     }
   }, [filteredLogs, selectedLog]);
 
@@ -213,49 +213,62 @@ export function LogsPage({ logs }) {
       </SectionCard>
 
       {selectedLog ? (
-        <aside className="details-drawer" role="dialog" aria-label="Log details">
-          <div className="details-header">
-            <div>
-              <p className="eyebrow">Log details</p>
-              <h2>{selectedLog.agent.id} / {selectedLog.request.action}</h2>
+        <div
+          className="modal-backdrop"
+          role="dialog"
+          aria-label="Log details"
+          onClick={() => setSelectedLog(null)}
+        >
+          <aside
+            className="details-drawer w-full max-w-5xl max-h-[85vh] overflow-auto"
+            onClick={(event) => event.stopPropagation()}
+          >
+            <div className="details-header">
+              <div>
+                <p className="eyebrow">Log details</p>
+                <h3>{selectedLog.agent.id} / {selectedLog.request.action}</h3>
+              </div>
+              <button className="drawer-close" type="button" onClick={() => setSelectedLog(null)}>Close</button>
             </div>
-            <button className="drawer-close" type="button" onClick={() => setSelectedLog(null)}>Close</button>
-          </div>
 
-          <div className="details-grid">
-            <DetailRow label="Timestamp" value={formatDate(selectedLog.timestamp)} />
-            <DetailRow label="Agent" value={selectedLog.agent.id.toUpperCase()} />
-            <DetailRow label="Role" value={selectedLog.agent.role} />
-            <DetailRow label="Action" value={selectedLog.request.action} mono />
-            <DetailRow label="Validation" value={selectedLog.security.validation_status} />
-            <DetailRow label="RBAC" value={selectedLog.security.rbac_status} />
-            <DetailRow label="Filter" value={selectedLog.security.filter_status} />
-            <DetailRow label="Detection" value={selectedLog.security.detection_status} />
-            <DetailRow label="Detection rule" value={selectedLog.security.detection_rule} />
-            <DetailRow label="Severity" value={selectedLog.security.severity ?? "LOW"} />
-            <DetailRow label="Recommended action" value={selectedLog.security.recommended_action ?? "NONE"} />
-            <DetailRow label="Incident status" value={selectedLog.security.incident_status} />
-            <DetailRow label="Incident action" value={selectedLog.security.incident_action ?? "NONE"} />
-            <DetailRow label="Blocked" value={selectedLog.blocked.is_blocked ? "YES" : "NO"} />
-            <DetailRow label="Blocked reason" value={selectedLog.blocked.reason} />
-            <DetailRow label="Final status" value={selectedLog.final_status} />
-          </div>
+            <div className="details-grid">
+              <DetailRow label="Timestamp" value={formatDate(selectedLog.timestamp)} />
+              <DetailRow label="Agent" value={selectedLog.agent.id.toUpperCase()} />
+              <DetailRow label="Role" value={selectedLog.agent.role} />
+              <DetailRow label="Action" value={selectedLog.request.action} mono />
+              <DetailRow label="Validation" value={selectedLog.security.validation_status} />
+              <DetailRow label="RBAC" value={selectedLog.security.rbac_status} />
+              <DetailRow label="Filter" value={selectedLog.security.filter_status} />
+              <DetailRow label="Detection" value={selectedLog.security.detection_status} />
+              <DetailRow label="Detection rule" value={selectedLog.security.detection_rule} />
+              <DetailRow label="Severity" value={selectedLog.security.severity ?? "LOW"} />
+              <DetailRow label="Risk score" value={selectedLog.security.risk_score ?? 0} />
+              <DetailRow label="Risk level" value={selectedLog.security.risk_level ?? "LOW"} />
+              <DetailRow label="Recommended action" value={selectedLog.security.recommended_action ?? "NONE"} />
+              <DetailRow label="Incident id" value={selectedLog.security.incident_id} mono />
+              <DetailRow label="Incident status" value={selectedLog.security.incident_status} />
+              <DetailRow label="Incident action" value={selectedLog.security.incident_action ?? "NONE"} />
+              <DetailRow label="Blocked" value={selectedLog.blocked.is_blocked ? "YES" : "NO"} />
+              <DetailRow label="Blocked reason" value={selectedLog.blocked.reason} />
+              <DetailRow label="Final status" value={selectedLog.final_status} />
+            </div>
 
-          <div className="json-block">
-            <p>Decision explanation</p>
-            <pre>{selectedLog.security.decision_explanation ?? "No explanation stored for this historical log."}</pre>
-          </div>
+            <div className="json-block">
+              <p>Decision explanation</p>
+              <pre>{selectedLog.security.decision_explanation ?? "No explanation stored for this historical log."}</pre>
+            </div>
 
-          <div className="json-block">
-            <p>Detection details</p>
-            <pre>{jsonPreview(selectedLog.security.detection_details)}</pre>
-          </div>
+            <div className="json-block">
+              <p>Detection details</p>
+              <pre>{jsonPreview(selectedLog.security.detection_details)}</pre>
+            </div>
 
-          <div className="json-block">
-            <p>Request params</p>
-            <pre>{JSON.stringify(selectedLog.request.params ?? {}, null, 2)}</pre>
-          </div>
-        </aside>
+            <div className="json-block">
+              <p>Request params</p>
+              <pre>{JSON.stringify(selectedLog.request.params ?? {}, null, 2)}</pre>
+            </div>
+          </aside>
+        </div>
       ) : null}
     </div>
   );

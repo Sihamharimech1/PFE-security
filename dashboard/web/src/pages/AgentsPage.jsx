@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { SectionCard } from "../components/SectionCard";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -9,9 +9,36 @@ function formatDate(value) {
   return new Date(value).toLocaleString();
 }
 
-export function AgentsPage({ agents, onStatusChange }) {
+function riskLevel(score) {
+  if (score >= 85) return "CRITICAL";
+  if (score >= 65) return "HIGH";
+  if (score >= 35) return "MEDIUM";
+  return "LOW";
+}
+
+export function AgentsPage({ agents, logs = [], onStatusChange }) {
   const [pendingAgent, setPendingAgent] = useState("");
   const [confirmation, setConfirmation] = useState(null);
+
+  const riskByAgent = useMemo(() => {
+    const scores = new Map();
+
+    for (const log of logs) {
+      const agentId = log.agent?.id;
+      if (!agentId) continue;
+
+      const score = Number(log.security?.risk_score ?? 0);
+      const current = scores.get(agentId) ?? { score: 0, level: "LOW" };
+      if (score >= current.score) {
+        scores.set(agentId, {
+          score,
+          level: log.security?.risk_level ?? riskLevel(score),
+        });
+      }
+    }
+
+    return scores;
+  }, [logs]);
 
   async function confirmChange() {
     if (!confirmation) return;
@@ -37,38 +64,46 @@ export function AgentsPage({ agents, onStatusChange }) {
                   <th>Agent</th>
                   <th>Role</th>
                   <th>Current status</th>
+                  <th>Risk score</th>
+                  <th>Risk level</th>
                   <th>Change status</th>
                   <th>Last update</th>
                   <th>History</th>
                 </tr>
               </thead>
               <tbody>
-                {agents.map((agent) => (
-                  <tr key={agent.agent_id}>
-                    <td className="font-semibold text-[var(--text)]">{agent.agent_id}</td>
-                    <td className="capitalize text-[var(--muted)]">{agent.role}</td>
-                    <td><StatusBadge status={agent.status} /></td>
-                    <td>
-                      <select
-                        className="status-select"
-                        value={agent.status}
-                        disabled={pendingAgent === agent.agent_id}
-                        onChange={(event) => {
-                          const nextStatus = event.target.value;
-                          if (nextStatus !== agent.status) {
-                            setConfirmation({ agent, nextStatus });
-                          }
-                        }}
-                      >
-                        {statuses.map((status) => (
-                          <option key={status} value={status}>{status}</option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="text-[var(--muted)]">{formatDate(agent.updated_at)}</td>
-                    <td>{agent.history?.length ?? 0} changes</td>
-                  </tr>
-                ))}
+                {agents.map((agent) => {
+                  const risk = riskByAgent.get(agent.agent_id) ?? { score: 0, level: "LOW" };
+
+                  return (
+                    <tr key={agent.agent_id}>
+                      <td className="font-semibold text-[var(--text)]">{agent.agent_id}</td>
+                      <td className="capitalize text-[var(--muted)]">{agent.role}</td>
+                      <td><StatusBadge status={agent.status} /></td>
+                      <td>{risk.score}</td>
+                      <td>{risk.level}</td>
+                      <td>
+                        <select
+                          className="status-select"
+                          value={agent.status}
+                          disabled={pendingAgent === agent.agent_id}
+                          onChange={(event) => {
+                            const nextStatus = event.target.value;
+                            if (nextStatus !== agent.status) {
+                              setConfirmation({ agent, nextStatus });
+                            }
+                          }}
+                        >
+                          {statuses.map((status) => (
+                            <option key={status} value={status}>{status}</option>
+                          ))}
+                        </select>
+                      </td>
+                      <td className="text-[var(--muted)]">{formatDate(agent.updated_at)}</td>
+                      <td>{agent.history?.length ?? 0} changes</td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

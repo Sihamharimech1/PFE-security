@@ -5,7 +5,10 @@ from core.filters import contains_malicious_content
 from core.executor import ExecutionEngine
 from core.incident_module import IncidentModule
 from core.decision_module import build_decision_metadata
+from core.models import AgentRequest, DetectionEvent
+from core.policy_engine import known_actions
 from storage.log_repository import LogRepository
+from storage.incident_repository import IncidentRepository
 
 
 class ControlModule:
@@ -15,13 +18,19 @@ class ControlModule:
         executor=None,
         log_repository=None,
         incident_module=None,
+        incident_repository=None,
     ):
         self.detection = detection_module
         self.logs = log_repository if log_repository is not None else LogRepository()
         self.executor = (
             executor if executor is not None else ExecutionEngine(log_repository=self.logs)
         )
-        self.incidents = incident_module if incident_module is not None else IncidentModule()
+        if incident_module is not None:
+            self.incidents = incident_module
+        else:
+            if incident_repository is None and log_repository is None:
+                incident_repository = IncidentRepository()
+            self.incidents = IncidentModule(incident_repository=incident_repository)
         self.agent_registry = {}
 
     def register_agent(self, agent):
@@ -30,61 +39,24 @@ class ControlModule:
 
     @staticmethod
     def _known_actions():
-        return {
-            "fetch_api",
-            "read_data",
-            "direct_answer",
-            "analyze_data",
-            "generate_report",
-            "write_report",
-            "format_document",
-            "save_report",
-            "execute_action",
-            "delete_data",
-            "write_data",
-            "run_command",
-            "suspend_agent",
-            "resume_agent",
-            "kill_switch",
-            "modify_config",
-            "view_logs",
-        }
+        return set(known_actions())
 
     def _validate_request(self, request):
-        if not isinstance(request, dict):
-            return False, "REQUEST_NOT_A_DICT"
-
-        required_fields = ("agent_id", "role", "action")
-        missing = [field for field in required_fields if not request.get(field)]
-        if missing:
-            return False, f"MISSING_FIELDS: {', '.join(missing)}"
-
-        if request["action"] not in self._known_actions():
-            return False, f"UNKNOWN_ACTION: {request['action']}"
-
-        params = request.get("params", {})
-        if params is None:
-            request["params"] = {}
-        elif not isinstance(params, dict):
-            return False, "PARAMS_NOT_A_DICT"
-
-        return True, None
+        try:
+            parsed = AgentRequest.from_payload(
+                request,
+                known_actions=self._known_actions(),
+            )
+            request["params"] = parsed.params
+            return True, None
+        except ValueError as exc:
+            return False, str(exc)
 
     @staticmethod
     def _normalize_detection_event(event, agent_id):
-        if isinstance(event, dict):
-            return event
-
         # Backward compatibility for injected detectors/tests that still return
         # the original "NORMAL"/"ANOMALY" strings.
-        return {
-            "status": event,
-            "agent_id": agent_id,
-            "rule_id": None,
-            "severity": "MEDIUM" if event == "ANOMALY" else None,
-            "recommended_action": "LIMIT" if event == "ANOMALY" else "NONE",
-            "details": {},
-        }
+        return DetectionEvent.from_value(event, agent_id=agent_id).to_dict()
 
     def process_request(self, request):
         print("\n[REQUEST RECEIVED BY CONTROL]")
@@ -132,6 +104,10 @@ class ControlModule:
                 filter_status="NOT_CHECKED",
                 detection_status="NOT_CHECKED",
                 severity=decision["severity"],
+                risk_score=decision["risk_score"],
+                risk_level=decision["risk_level"],
+                risk_factors=decision["risk_factors"],
+                action_sensitivity=decision["action_sensitivity"],
                 decision_explanation=decision["explanation"],
                 recommended_action=decision["recommended_action"],
                 execution_status="NOT_EXECUTED",
@@ -177,10 +153,16 @@ class ControlModule:
                 filter_status="NOT_CHECKED",
                 detection_status="NOT_CHECKED",
                 severity=decision["severity"],
+                risk_score=decision["risk_score"],
+                risk_level=decision["risk_level"],
+                risk_factors=decision["risk_factors"],
+                action_sensitivity=decision["action_sensitivity"],
                 decision_explanation=decision["explanation"],
                 recommended_action=decision["recommended_action"],
                 incident_status="LIMIT_ACTIVE",
                 incident_action="LIMIT",
+                incident_id=incident_result.get("incident_id"),
+                incident_lifecycle_status=incident_result.get("lifecycle_status"),
                 execution_status="NOT_EXECUTED",
                 final_status="BLOCKED",
                 result_preview=None,
@@ -226,11 +208,17 @@ class ControlModule:
                 detection_status=detection_event["status"],
                 detection_rule=detection_event.get("rule_id"),
                 severity=decision["severity"],
+                risk_score=decision["risk_score"],
+                risk_level=decision["risk_level"],
+                risk_factors=decision["risk_factors"],
+                action_sensitivity=decision["action_sensitivity"],
                 decision_explanation=decision["explanation"],
                 recommended_action=decision["recommended_action"],
                 detection_details=detection_event.get("details"),
                 incident_status=incident_result["status"],
                 incident_action=incident_result["action"],
+                incident_id=incident_result.get("incident_id"),
+                incident_lifecycle_status=incident_result.get("lifecycle_status"),
                 execution_status="NOT_EXECUTED",
                 final_status="BLOCKED",
                 result_preview=None,
@@ -277,11 +265,17 @@ class ControlModule:
                 detection_status=detection_event["status"],
                 detection_rule=detection_event.get("rule_id"),
                 severity=decision["severity"],
+                risk_score=decision["risk_score"],
+                risk_level=decision["risk_level"],
+                risk_factors=decision["risk_factors"],
+                action_sensitivity=decision["action_sensitivity"],
                 decision_explanation=decision["explanation"],
                 recommended_action=decision["recommended_action"],
                 detection_details=detection_event.get("details"),
                 incident_status=incident_result["status"],
                 incident_action=incident_result["action"],
+                incident_id=incident_result.get("incident_id"),
+                incident_lifecycle_status=incident_result.get("lifecycle_status"),
                 execution_status="NOT_EXECUTED",
                 final_status="BLOCKED",
                 result_preview=None,
@@ -337,11 +331,17 @@ class ControlModule:
             detection_status=detection_status,
             detection_rule=detection_event.get("rule_id"),
             severity=decision["severity"],
+            risk_score=decision["risk_score"],
+            risk_level=decision["risk_level"],
+            risk_factors=decision["risk_factors"],
+            action_sensitivity=decision["action_sensitivity"],
             decision_explanation=decision["explanation"],
             recommended_action=decision["recommended_action"],
             detection_details=detection_event.get("details"),
             incident_status=incident_result["status"],
             incident_action=incident_result["action"],
+            incident_id=incident_result.get("incident_id"),
+            incident_lifecycle_status=incident_result.get("lifecycle_status"),
             execution_status=execution_status,
             final_status=final_status,
             result_preview=result_preview,

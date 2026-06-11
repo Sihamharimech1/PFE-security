@@ -6,6 +6,9 @@ an action. This module turns that technical decision into explicit metadata that
 can be stored, explained, and aggregated by the supervision dashboard.
 """
 
+from core.models import DecisionMetadata
+from core.risk_scoring import score_decision
+
 
 SEVERITY_ORDER = {
     "INFO": 0,
@@ -154,10 +157,25 @@ def build_decision_metadata(
         final_status=final_status,
         blocked_reason=blocked_reason,
     )
-    return {
-        "severity": severity,
-        "explanation": explanation,
-        "recommended_action": detection_event.get("recommended_action")
+    risk = score_decision(
+        action=action,
+        validation_status=validation_status,
+        rbac_status=rbac_status,
+        filter_status=filter_status,
+        detection_event=detection_event,
+        incident_action=incident_result.get("action"),
+        final_status=final_status,
+        is_blocked=is_blocked,
+        blocked_reason=blocked_reason,
+    )
+    return DecisionMetadata(
+        severity=severity,
+        explanation=explanation,
+        recommended_action=detection_event.get("recommended_action")
         or incident_result.get("action")
         or "NONE",
-    }
+        risk_score=risk["risk_score"],
+        risk_level=risk["risk_level"],
+        risk_factors=risk["risk_factors"],
+        action_sensitivity=risk["action_sensitivity"],
+    ).to_dict()

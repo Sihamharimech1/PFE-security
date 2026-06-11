@@ -2,6 +2,8 @@
 
 from collections import defaultdict, deque
 import time
+from core.models import DetectionEvent
+from core.risk_scoring import score_detection_event
 
 
 class DetectionModule:
@@ -39,14 +41,26 @@ class DetectionModule:
         recommended_action: str = "NONE",
         details: dict = None,
     ) -> dict:
-        return {
-            "status": status,
-            "agent_id": agent_id,
-            "rule_id": rule_id,
-            "severity": severity,
-            "recommended_action": recommended_action,
-            "details": details or {},
-        }
+        details = details or {}
+        risk = score_detection_event(
+            action=details.get("action", "unknown"),
+            status=status,
+            rule_id=rule_id,
+            recommended_action=recommended_action,
+            details=details,
+        )
+        return DetectionEvent(
+            status=status,
+            agent_id=agent_id,
+            rule_id=rule_id,
+            severity=severity,
+            recommended_action=recommended_action,
+            details=details,
+            risk_score=risk["risk_score"],
+            risk_level=risk["risk_level"],
+            risk_factors=risk["risk_factors"],
+            action_sensitivity=risk["action_sensitivity"],
+        ).to_dict()
 
     @staticmethod
     def _prune(window, now: float, window_seconds: int):
