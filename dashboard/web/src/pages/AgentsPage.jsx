@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 import { StatusBadge } from "../components/StatusBadge";
 
@@ -81,7 +82,7 @@ export function AgentsPage({ agents, logs = [], onStatusChange }) {
                       <td className="capitalize text-[var(--muted)]">{agent.role}</td>
                       <td><StatusBadge status={agent.status} /></td>
                       <td>{risk.score}</td>
-                      <td>{risk.level}</td>
+                      <td><OperationalBadge status={risk.level} /></td>
                       <td>
                         <select
                           className="status-select"

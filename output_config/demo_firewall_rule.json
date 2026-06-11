@@ -1,0 +1,5 @@
+{
+  "rule": "BLOCK",
+  "ip": "192.168.1.5",
+  "reason": "Demo brute-force containment"
+}

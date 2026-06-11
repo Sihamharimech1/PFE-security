@@ -23,13 +23,12 @@ class AgentRepository:
             {"agent_id": agent_id},
             {
                 "$setOnInsert": {
-                    "agent_id":   agent_id,
-                    "role":       role,
                     "status":     "active",
                     "created_at": now,
                     "history":    [{"status": "active", "changed_at": now}]
                 },
                 "$set": {
+                    "agent_id": agent_id,
                     "role": role,
                     "updated_at": now,
                     "last_seen": now,

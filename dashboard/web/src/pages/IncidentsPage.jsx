@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
 
@@ -91,9 +92,9 @@ export function IncidentsPage({ incidents = [], onIncidentStatusChange }) {
                       <td className="font-mono text-xs">{incident.incident_id}</td>
                       <td>{incident.agent_id ?? "-"}</td>
                       <td>{incident.rule_id ?? "-"}</td>
-                      <td>{incident.risk_level ?? incident.severity ?? "-"}</td>
+                      <td><OperationalBadge status={incident.risk_level ?? incident.severity ?? "LOW"} /></td>
                       <td><SeverityBadge action={incident.response_action ?? incident.recommended_action} /></td>
-                      <td>{incident.status}</td>
+                      <td><OperationalBadge status={incident.status} /></td>
                       <td onClick={(event) => event.stopPropagation()}>
                         <select
                           className="status-select"

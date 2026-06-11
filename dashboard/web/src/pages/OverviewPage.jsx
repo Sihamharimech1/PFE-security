@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { KpiCard } from "../components/KpiCard";
+import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { StatusBadge } from "../components/StatusBadge";
@@ -81,9 +82,9 @@ export function OverviewPage({ data, onOpenIncidents }) {
                     <td className="text-[var(--muted)]">{formatDate(log.timestamp)}</td>
                     <td >{log.agent.id}</td>
                     <td className="font-mono text-xs">{log.request.action}</td>
-                    <td>{log.security.rbac_status}</td>
-                    <td>{log.security.detection_status}</td>
-                    <td>{log.final_status}</td>
+                    <td><OperationalBadge status={log.security.rbac_status} /></td>
+                    <td><OperationalBadge status={log.security.detection_status} /></td>
+                    <td><OperationalBadge status={log.final_status} /></td>
                     <td className="text-[var(--muted)]">
                       {short(log.security.detection_rule ?? log.blocked.reason ?? "-")}
                     </td>
@@ -119,7 +120,7 @@ export function OverviewPage({ data, onOpenIncidents }) {
                     <td className="font-mono text-xs">{alert.request.action}</td>
                     <td>{alert.security.detection_rule ?? alert.blocked.reason ?? "policy"}</td>
                     <td><SeverityBadge action={alert.security.incident_action} /></td>
-                    <td>{alert.final_status}</td>
+                    <td><OperationalBadge status={alert.final_status} /></td>
                   </tr>
                 ))}
               </tbody>

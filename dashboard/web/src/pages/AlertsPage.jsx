@@ -1,4 +1,5 @@
 import { useMemo } from "react";
+import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
 
@@ -46,12 +47,12 @@ export function AlertsPage({ alerts, incidents = [] }) {
                     <td className="text-[var(--muted)]">{alert.agent?.role ?? "-"}</td>
                     <td className="font-mono text-xs">{alert.request?.action ?? "-"}</td>
                     <td>{alert.security?.detection_rule ?? "-"}</td>
-                    <td>{alert.security?.risk_level ?? alert.security?.severity ?? "-"}</td>
+                    <td><OperationalBadge status={alert.security?.risk_level ?? alert.security?.severity ?? "LOW"} /></td>
                     <td>{alert.blocked?.reason ?? "-"}</td>
                     <td><SeverityBadge action={alert.security?.incident_action} /></td>
                     <td className="font-mono text-xs">{incidentId ?? "-"}</td>
-                    <td>{incident?.status ?? alert.security?.incident_lifecycle_status ?? "-"}</td>
-                    <td>{alert.final_status ?? "-"}</td>
+                    <td><OperationalBadge status={incident?.status ?? alert.security?.incident_lifecycle_status ?? "NONE"} /></td>
+                    <td><OperationalBadge status={alert.final_status ?? "NONE"} /></td>
                   </tr>
                 );
               })}

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 
 function formatDate(value) {
@@ -194,15 +195,20 @@ export function LogsPage({ logs }) {
                       <td className="text-[var(--muted)]">{log.agent.role}</td>
                       <td className="font-mono text-xs">{log.request.action}</td>
                       <td className="font-mono text-xs text-[var(--muted)]">{paramsPreview(log.request.params)}</td>
-                      <td>{log.security.validation_status}</td>
-                      <td>{log.security.rbac_status}</td>
-                      <td>{log.security.filter_status}</td>
-                      <td>{log.security.detection_status}</td>
-                      <td>{log.security.severity ?? "LOW"}</td>
+                      <td><OperationalBadge status={log.security.validation_status} /></td>
+                      <td><OperationalBadge status={log.security.rbac_status} /></td>
+                      <td><OperationalBadge status={log.security.filter_status} /></td>
+                      <td><OperationalBadge status={log.security.detection_status} /></td>
+                      <td><OperationalBadge status={log.security.severity ?? "LOW"} /></td>
                       <td className="max-w-[300px] text-[var(--muted)]">{textPreview(log.security.decision_explanation)}</td>
-                      <td>{log.security.incident_action ?? "NONE"}</td>
-                      <td>{log.blocked.is_blocked ? log.blocked.reason ?? "YES" : "NO"}</td>
-                      <td>{log.final_status}</td>
+                      <td><OperationalBadge status={log.security.incident_action ?? "NONE"} /></td>
+                      <td>
+                        <OperationalBadge
+                          status={log.blocked.is_blocked ? "BLOCKED" : "APPROVED"}
+                          label={log.blocked.is_blocked ? "BLOCKED" : "APPROVED"}
+                        />
+                      </td>
+                      <td><OperationalBadge status={log.final_status} /></td>
                     </tr>
                   ))}
                 </tbody>
