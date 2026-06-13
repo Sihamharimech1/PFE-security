@@ -4,11 +4,7 @@ import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { StatusBadge } from "../components/StatusBadge";
-
-function formatDate(value) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
-}
+import { formatTime } from "../lib/formatTime";
 
 function short(value, max = 52) {
   if (value === undefined || value === null) return "-";
@@ -79,7 +75,7 @@ export function OverviewPage({ data, onOpenIncidents }) {
               <tbody>
                 {recentLogs.map((log, index) => (
                   <tr key={`${log.timestamp}-${index}`}>
-                    <td className="text-[var(--muted)]">{formatDate(log.timestamp)}</td>
+                    <td className="text-[var(--muted)]">{formatTime(log.timestamp)}</td>
                     <td >{log.agent.id}</td>
                     <td className="font-mono text-xs">{log.request.action}</td>
                     <td><OperationalBadge status={log.security.rbac_status} /></td>
@@ -115,7 +111,7 @@ export function OverviewPage({ data, onOpenIncidents }) {
               <tbody>
                 {recentAlerts.map((alert, index) => (
                   <tr key={`${alert.timestamp}-${index}`}>
-                    <td className="text-[var(--muted)]">{formatDate(alert.timestamp)}</td>
+                    <td className="text-[var(--muted)]">{formatTime(alert.timestamp)}</td>
                     <td>{alert.agent.id}</td>
                     <td className="font-mono text-xs">{alert.request.action}</td>
                     <td>{alert.security.detection_rule ?? alert.blocked.reason ?? "policy"}</td>

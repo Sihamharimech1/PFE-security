@@ -1,11 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
-
-function formatDate(value) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
-}
+import { formatTime } from "../lib/formatTime";
 
 function paramsPreview(params) {
   if (!params || Object.keys(params).length === 0) return "-";
@@ -174,7 +170,7 @@ export function LogsPage({ logs }) {
                       onClick={() => openLogDetails(log)}
                       onPointerDown={() => openLogDetails(log)}
                     >
-                      <td className="text-[var(--muted)]">{formatDate(log.timestamp)}</td>
+                      <td className="text-[var(--muted)]">{formatTime(log.timestamp)}</td>
                       <td>
                         <button
                           className="table-action"
@@ -238,7 +234,7 @@ export function LogsPage({ logs }) {
             </div>
 
             <div className="details-grid">
-              <DetailRow label="Timestamp" value={formatDate(selectedLog.timestamp)} />
+              <DetailRow label="Timestamp" value={formatTime(selectedLog.timestamp)} />
               <DetailRow label="Agent" value={selectedLog.agent.id.toUpperCase()} />
               <DetailRow label="Role" value={selectedLog.agent.role} />
               <DetailRow label="Action" value={selectedLog.request.action} mono />

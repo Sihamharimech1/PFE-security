@@ -17,8 +17,7 @@ from storage.agent_repository import AgentRepository
 from storage.incident_repository import IncidentRepository, VALID_INCIDENT_STATUSES
 from storage.log_repository import LogRepository
 from storage.mongo_client import MongoDBClient
-from core.supervision_metrics import calculate_supervision_metrics
-from core.policy_engine import policy_summary
+from core.supervision_metrics import calculate_agent_activity, calculate_supervision_metrics
 
 
 HOST = "127.0.0.1"
@@ -99,12 +98,13 @@ def _fetch_incidents(limit=50):
 
 
 def _collect_repository_data():
-    executor = ThreadPoolExecutor(max_workers=3)
+    executor = ThreadPoolExecutor(max_workers=4)
     agent_future = executor.submit(_fetch_agents)
     log_future = executor.submit(_fetch_logs, 80)
+    activity_log_future = executor.submit(_fetch_logs, 500)
     incident_future = executor.submit(_fetch_incidents, 80)
     done, _ = wait(
-        [agent_future, log_future, incident_future],
+        [agent_future, log_future, activity_log_future, incident_future],
         timeout=REPOSITORY_TIMEOUT_SECONDS,
     )
 
@@ -118,9 +118,10 @@ def _collect_repository_data():
 
     agents = read_future(agent_future)
     logs = read_future(log_future)
+    activity_logs = read_future(activity_log_future)
     incidents = read_future(incident_future)
     executor.shutdown(wait=False, cancel_futures=True)
-    return agents, logs, incidents
+    return agents, logs, activity_logs, incidents
 
 
 def _normalize_list(value):
@@ -206,9 +207,10 @@ def fetch_incidents_for_query(query):
 
 
 def build_payload():
-    raw_agents, raw_logs, raw_incidents = _collect_repository_data()
+    raw_agents, raw_logs, raw_activity_logs, raw_incidents = _collect_repository_data()
     agents, agents_error = _normalize_list(raw_agents)
     logs, logs_error = _normalize_list(raw_logs)
+    activity_logs, activity_logs_error = _normalize_list(raw_activity_logs)
     incidents, incidents_error = _normalize_list(raw_incidents)
 
     alerts = [
@@ -236,9 +238,19 @@ def build_payload():
         ),
         "status_counts": status_counts,
         "last_updated": datetime.now(timezone.utc).isoformat(),
-        "errors": [error for error in [agents_error, logs_error, incidents_error] if error],
+        "errors": [
+            error
+            for error in [
+                agents_error,
+                logs_error,
+                activity_logs_error,
+                incidents_error,
+            ]
+            if error
+        ],
     }
     metrics = calculate_supervision_metrics(logs, agents)
+    agent_activity = calculate_agent_activity(activity_logs, agents)
     incident_counts = {}
     for incident in incidents:
         status = incident.get("status", "UNKNOWN")
@@ -251,6 +263,7 @@ def build_payload():
         "alerts": alerts,
         "incidents": incidents,
         "metrics": metrics,
+        "agent_activity": agent_activity,
         "incident_lifecycle": {
             "total": len(incidents),
             "open": incident_counts.get("OPEN", 0),
@@ -289,10 +302,18 @@ def update_agent_status(agent_id, status, reason=None):
             status,
             reason or "Updated from Supervision Center",
         )
+        updated_state = repo.get_state(agent_id)
+        expected_level = "NORMAL" if status == "active" else "SUSPENDED"
+        actual_level = updated_state.get("limitation", {}).get("level")
+        if updated_state.get("status") != status or actual_level != expected_level:
+            return {
+                "error": "Agent state synchronization failed",
+            }, 409
         return {
             "ok": True,
             "agent_id": agent_id,
             "status": status,
+            "limitation_level": actual_level,
             "updated_at": datetime.now(timezone.utc).isoformat(),
         }, 200
     except Exception as exc:
@@ -359,9 +380,6 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/mongo-status":
             self._write_json(check_mongo_status())
             return
-        if path == "/api/policies":
-            self._write_json(policy_summary())
-            return
         if path == "/api/logs":
             payload, status_code = fetch_logs_for_query(query)
             self._write_json(payload, status=status_code)
@@ -386,6 +404,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
             return
         if path == "/api/metrics":
             self._write_json(payload["metrics"])
+            return
+        if path == "/api/agent-activity":
+            self._write_json(payload["agent_activity"])
             return
         if path == "/api/dashboard":
             self._write_json(payload)

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { Sidebar } from "./components/Sidebar";
+import { formatTime } from "./lib/formatTime";
 import { loadDashboard, updateAgentStatus, updateIncidentStatus } from "./lib/dashboardApi";
 import { AgentsPage } from "./pages/AgentsPage";
 import { AlertsPage } from "./pages/AlertsPage";
@@ -56,11 +57,7 @@ export default function App() {
 
   const lastUpdated = useMemo(() => {
     if (!data?.overview?.last_updated) return "waiting";
-    return new Date(data.overview.last_updated).toLocaleTimeString([], {
-      hour: "2-digit",
-      minute: "2-digit",
-      second: "2-digit",
-    });
+    return formatTime(data.overview.last_updated);
   }, [data]);
 
   async function handleAgentStatusChange(agentId, status) {
@@ -111,7 +108,14 @@ export default function App() {
         onIncidentStatusChange={handleIncidentStatusChange}
       />
     ),
-    agents: <AgentsPage agents={data.agents} logs={data.logs} onStatusChange={handleAgentStatusChange} />,
+    agents: (
+      <AgentsPage
+        agents={data.agents}
+        logs={data.logs}
+        activityByAgent={data.agent_activity ?? {}}
+        onStatusChange={handleAgentStatusChange}
+      />
+    ),
     activity: <ActivityPage logs={data.logs} />,
     scenarios: <ScenariosPage scenarios={data.scenarios} />,
   };

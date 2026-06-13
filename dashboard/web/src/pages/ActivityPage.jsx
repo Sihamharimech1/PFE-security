@@ -1,18 +1,14 @@
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
-
-function formatTime(value) {
-  if (!value) return "--";
-  return new Date(value).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
-}
+import { formatTime } from "../lib/formatTime";
 
 export function ActivityPage({ logs }) {
   const activity = logs
     .slice()
     .reverse()
     .reduce((buckets, log) => {
-      const label = formatTime(log.timestamp);
+      const label = formatTime(log.timestamp, "--");
       const previous = buckets[buckets.length - 1];
       const shouldReuseBucket = previous && previous.time === label;
       const bucket = shouldReuseBucket
@@ -116,7 +112,7 @@ export function ActivityPage({ logs }) {
                     <OperationalBadge status={log.final_status} />
                   </div>
                 </div>
-                <span className="text-xs text-[var(--muted)]">{formatTime(log.timestamp)}</span>
+                <span className="text-xs text-[var(--muted)]">{formatTime(log.timestamp, "--")}</span>
               </div>
             </div>
           )) : (

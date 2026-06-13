@@ -384,6 +384,10 @@ select {
 .status-dot {
   height: 6px;
   width: 6px;
+  flex: 0 0 6px;
+  border-radius: 999px;
+  background: currentColor;
+  box-shadow: 0 0 0 3px color-mix(in srgb, currentColor 14%, transparent);
 }
 
 .badge-good { color: var(--good); background: var(--good-soft); }
@@ -534,6 +538,39 @@ select {
   box-shadow: 0 0 0 3px var(--accent-soft);
 }
 
+.incident-search {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: min(100%, 520px);
+  color: var(--muted);
+}
+
+.incident-search .filter-input {
+  min-width: 0;
+  flex: 1;
+}
+
+.icon-button {
+  display: inline-grid;
+  width: 34px;
+  height: 34px;
+  flex: 0 0 34px;
+  place-items: center;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface-muted);
+  color: var(--muted);
+  cursor: pointer;
+  transition: border-color 160ms ease, color 160ms ease, background 160ms ease;
+}
+
+.icon-button:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--text);
+}
+
 .table-meta {
   margin: 8px 0 12px;
   color: var(--muted);
@@ -566,6 +603,88 @@ select {
   background: var(--surface);
   box-shadow: var(--shadow);
   padding: 16px;
+}
+
+.agent-details-drawer {
+  width: min(1120px, calc(100vw - 32px));
+  max-height: 88vh;
+  overflow: auto;
+}
+
+.agent-detail-badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.agent-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(110px, 1fr));
+  gap: 8px;
+}
+
+.agent-summary-grid strong {
+  display: block;
+  margin-top: 6px;
+  color: var(--text);
+  font-size: 18px;
+}
+
+.agent-chart {
+  height: 320px;
+  margin-top: 16px;
+}
+
+.agent-history-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px;
+  margin-top: 18px;
+}
+
+.agent-history-grid h4 {
+  margin-bottom: 8px;
+  color: var(--text);
+  font-size: 13px;
+  font-weight: 750;
+}
+
+.history-list {
+  display: grid;
+  gap: 8px;
+}
+
+.history-entry {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  gap: 6px 10px;
+  align-items: center;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.history-entry span {
+  color: var(--muted);
+  font-size: 11px;
+  text-align: right;
+}
+
+.history-entry p {
+  grid-column: 1 / -1;
+  color: var(--muted);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 760px) {
+  .agent-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .agent-history-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .details-header {

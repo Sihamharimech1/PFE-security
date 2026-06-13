@@ -6,13 +6,15 @@ React/Tailwind dashboard named **Supervision Center**.
 
 ## Current backend capabilities
 
-- Request validation and role-based access control through a configurable policy engine.
+- Request validation and role-based access control through a private, versioned MongoDB policy store.
+- Authoritative agent-role verification that blocks identity inconsistencies before RBAC.
+- Persistent agent limitation levels: normal, watch, degraded, restricted, and suspended.
 - Prompt/security filtering before execution.
 - Behavioral anomaly detection with risk score and risk level.
 - Graduated incident response: alert, limit, suspend, and kill-switch.
 - Persistent audit logs and incident lifecycle documents in MongoDB.
 - Safer execution layer for network, filesystem, and command actions.
-- Dashboard API with live logs, alerts, agents, metrics, policies, and incidents.
+- Dashboard API with live logs, alerts, agents, metrics, and incidents.
 
 ## Useful commands
 

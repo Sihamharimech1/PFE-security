@@ -2,11 +2,7 @@ import { useMemo } from "react";
 import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
-
-function formatDate(value) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
-}
+import { formatTime } from "../lib/formatTime";
 
 export function AlertsPage({ alerts, incidents = [] }) {
   const incidentById = useMemo(() => {
@@ -42,7 +38,7 @@ export function AlertsPage({ alerts, incidents = [] }) {
 
                 return (
                   <tr key={`${alert.timestamp}-${index}`}>
-                    <td className="text-[var(--muted)]">{formatDate(alert.timestamp)}</td>
+                    <td className="text-[var(--muted)]">{formatTime(alert.timestamp)}</td>
                     <td>{alert.agent?.id ?? "-"}</td>
                     <td className="text-[var(--muted)]">{alert.agent?.role ?? "-"}</td>
                     <td className="font-mono text-xs">{alert.request?.action ?? "-"}</td>

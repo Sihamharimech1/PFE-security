@@ -64,9 +64,18 @@ Le backend ne se contente plus de générer une alerte ponctuelle. Les anomalies
 
 Chaque incident conserve un historique de changement de statut, ce qui rapproche l’application d’un outil réel de suivi SOC.
 
+Les réponses automatiques utilisent également des niveaux de limitation
+persistés dans `agent_states` : `NORMAL`, `WATCH`, `DEGRADED`, `RESTRICTED` et
+`SUSPENDED`. Le niveau `DEGRADED` espace les requêtes, tandis que le niveau
+`RESTRICTED` limite l'agent aux opérations à faible risque. Ces restrictions
+restent actives après le redémarrage du backend.
+
 ### 3.3 Policy engine
 
-Les règles RBAC ont été externalisées dans `config/policies.json`.
+Les règles RBAC sont conservées dans une collection MongoDB privée et versionnée.
+Le fichier `config/policies.json` sert uniquement à initialiser une collection
+vide ou comme solution de secours si MongoDB est indisponible. Ces règles ne
+sont pas exposées par l'API du dashboard.
 
 Cette approche permet de modifier les rôles, les actions autorisées, la sensibilité des actions et certaines politiques d’exécution sans réécrire le code Python.
 
@@ -134,7 +143,6 @@ Endpoints principaux :
 | `GET /api/incidents` | Récupère les incidents filtrables |
 | `GET /api/agents` | Récupère l’état des agents |
 | `GET /api/metrics` | Récupère les métriques de supervision |
-| `GET /api/policies` | Expose le résumé des politiques |
 | `POST /api/agents/status` | Met à jour le statut d’un agent |
 | `POST /api/incidents/status` | Met à jour le statut d’un incident |
 
@@ -201,4 +209,3 @@ Les prochaines améliorations possibles sont :
 - ajout de règles de corrélation multi-agents ;
 - durcissement des tests d’intégration avec MongoDB réel ;
 - enrichissement des métriques SOC comme MTTA, MTTR et taux de faux positifs.
-

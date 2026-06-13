@@ -30,6 +30,7 @@ class DetectionModule:
 
         self.action_history = defaultdict(deque)
         self.role_violation_history = defaultdict(deque)
+        self.role_inconsistency_history = defaultdict(deque)
 
     @staticmethod
     def _event(
@@ -162,6 +163,49 @@ class DetectionModule:
                 "threshold": self.role_violation_threshold,
                 "window_seconds": self.role_violation_window_seconds,
             },
+        )
+
+    def record_role_inconsistency(self, request: dict) -> dict:
+        """
+        Track identity/role mismatches without exposing either role in telemetry.
+        """
+        agent = request["agent_id"]
+        now = self.clock()
+
+        history = self.role_inconsistency_history[agent]
+        history.append(now)
+        self._prune(history, now, self.role_violation_window_seconds)
+        count = len(history)
+        repeated = count >= self.role_violation_threshold
+
+        print(
+            f"[DETECTION] {agent} | role identity inconsistency | "
+            f"{count} event(s) in {self.role_violation_window_seconds}s window"
+        )
+
+        return self._event(
+            status="ANOMALY",
+            agent_id=agent,
+            rule_id="ROLE_IDENTITY_MISMATCH",
+            severity="HIGH",
+            recommended_action="SUSPEND" if repeated else "ALERT",
+            details={
+                "action": request["action"],
+                "count": count,
+                "threshold": self.role_violation_threshold,
+                "window_seconds": self.role_violation_window_seconds,
+            },
+        )
+
+    def record_unknown_agent(self, request: dict) -> dict:
+        """Create a generic anomaly for an identity absent from the registry."""
+        return self._event(
+            status="ANOMALY",
+            agent_id=request["agent_id"],
+            rule_id="UNKNOWN_AGENT_IDENTITY",
+            severity="HIGH",
+            recommended_action="ALERT",
+            details={"action": request["action"]},
         )
 
     def record_malicious_input(self, request: dict, pattern: str) -> dict:

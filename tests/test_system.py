@@ -1,5 +1,6 @@
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from agents.base_agent import BaseAgent
 from core.control_module import ControlModule
@@ -13,11 +14,16 @@ from core.policy_engine import (
     allowed_actions_for_role,
     is_allowed,
     is_known_action,
+    load_policy,
     policy_load_error,
+    policy_source,
+    refresh_policy_cache,
 )
+from core.supervision_metrics import calculate_agent_activity
 from dashboard.api_server import _parse_bool, _parse_limit
 from storage.incident_repository import IncidentRepository
 from storage.log_repository import LogRepository
+from storage.policy_repository import PolicyRepository
 
 
 class FakeRepo:
@@ -30,6 +36,59 @@ class FakeRepo:
 
     def update_status(self, agent_id, new_status, reason=None):
         self.status_updates.append((agent_id, new_status, reason))
+
+
+class FakeAgentIdentityRepository:
+    def __init__(self, states=None):
+        self.states = states or {}
+
+    def get_state(self, agent_id):
+        return dict(self.states.get(agent_id, {}))
+
+
+class FakePersistentAgentRepository(FakeAgentIdentityRepository):
+    def get_limitation(self, agent_id):
+        state = self.states.get(agent_id, {})
+        return dict(
+            state.get(
+                "limitation",
+                {
+                    "level": "NORMAL",
+                    "reason": None,
+                    "next_allowed_at": None,
+                    "recover_at": None,
+                    "history": [],
+                },
+            )
+        )
+
+    def update_limitation(
+        self,
+        agent_id,
+        level,
+        reason,
+        next_allowed_at=None,
+        recover_at=None,
+    ):
+        state = self.states.setdefault(agent_id, {"agent_id": agent_id})
+        current = state.get("limitation", {})
+        history = list(current.get("history", []))
+        if current.get("level") != level:
+            history.append({"level": level, "reason": reason})
+        state["limitation"] = {
+            "level": level,
+            "reason": reason,
+            "next_allowed_at": next_allowed_at,
+            "recover_at": recover_at,
+            "history": history,
+        }
+        return True
+
+    def update_next_allowed_at(self, agent_id, next_allowed_at):
+        limitation = self.get_limitation(agent_id)
+        limitation["next_allowed_at"] = next_allowed_at
+        self.states[agent_id]["limitation"] = limitation
+        return True
 
 
 class FakeLogRepository:
@@ -114,6 +173,32 @@ class FakeClock:
         self.value += seconds
 
 
+class FakePolicyCollection:
+    def __init__(self):
+        self.document = None
+        self.indexes = []
+
+    def create_index(self, *args, **kwargs):
+        self.indexes.append((args, kwargs))
+
+    def find_one(self, query, projection=None):
+        if self.document and self.document.get("status") == query.get("status"):
+            return dict(self.document)
+        return None
+
+    def insert_one(self, document):
+        self.document = dict(document)
+        return object()
+
+
+class FakePolicyMongo:
+    def __init__(self, collection):
+        self.collection = collection
+
+    def get_collection(self, name):
+        return self.collection
+
+
 class TestSystem(unittest.TestCase):
     def test_typed_models_validate_and_serialize(self):
         request = AgentRequest.from_payload(
@@ -169,6 +254,59 @@ class TestSystem(unittest.TestCase):
         self.assertFalse(is_known_action("non_existing_action"))
         self.assertEqual(action_sensitivity("kill_switch"), "critical")
         self.assertEqual(action_sensitivity("delete_data"), "high")
+
+    def test_policy_repository_bootstraps_one_versioned_active_document(self):
+        collection = FakePolicyCollection()
+        with patch(
+            "storage.policy_repository.MongoDBClient",
+            return_value=FakePolicyMongo(collection),
+        ):
+            repository = PolicyRepository()
+            first = repository.bootstrap({"version": "1.0", "roles": {}, "actions": {}})
+            second = repository.bootstrap({"version": "2.0", "roles": {}, "actions": {}})
+
+        self.assertEqual(first["policy_id"], second["policy_id"])
+        self.assertEqual(collection.document["status"], "active")
+        self.assertEqual(collection.document["source"], "bootstrap")
+        self.assertIn("checksum_sha256", collection.document)
+
+    def test_policy_engine_prefers_mongo_policy(self):
+        mongo_policy = {
+            "version": "mongo-test",
+            "roles": {"collector": {"allowed_actions": ["read_data"]}},
+            "actions": {"read_data": {"sensitivity": "low"}},
+            "execution": {},
+        }
+        document = {
+            "policy_id": "rbac-mongo-test",
+            "checksum_sha256": "abc123",
+            "policy": mongo_policy,
+        }
+
+        refresh_policy_cache()
+        try:
+            with patch(
+                "core.policy_engine.PolicyRepository.get_active",
+                return_value=document,
+            ), patch("core.policy_engine.PolicyRepository.__init__", return_value=None):
+                self.assertEqual(load_policy()["version"], "mongo-test")
+                self.assertEqual(policy_source(), "mongo")
+        finally:
+            refresh_policy_cache()
+
+    def test_policy_engine_falls_back_when_mongo_is_unavailable(self):
+        refresh_policy_cache()
+        try:
+            with patch(
+                "core.policy_engine.PolicyRepository",
+                side_effect=RuntimeError("mongo unavailable"),
+            ):
+                policy = load_policy()
+                self.assertEqual(policy["_policy_source"], "json_fallback")
+                self.assertIn("collector", policy["roles"])
+                self.assertIn("mongo unavailable", policy["_mongo_error"])
+        finally:
+            refresh_policy_cache()
 
     def test_log_repository_builds_filtered_query(self):
         query = LogRepository._build_query(
@@ -255,6 +393,108 @@ class TestSystem(unittest.TestCase):
         self.assertEqual(log_repo.entries[0]["risk_level"], "HIGH")
         self.assertEqual(log_repo.entries[0]["action_sensitivity"], "high")
         self.assertIn("not allowed", log_repo.entries[0]["decision_explanation"])
+
+    def test_control_module_blocks_claimed_admin_role_before_rbac(self):
+        log_repo = FakeLogRepository()
+        executor = FakeExecutor()
+        identities = FakeAgentIdentityRepository(
+            {"A1": {"agent_id": "A1", "role": "collector"}}
+        )
+        control = ControlModule(
+            DetectionModule(),
+            executor=executor,
+            log_repository=log_repo,
+            agent_repository=identities,
+        )
+
+        result = control.process_request(
+            {
+                "agent_id": "A1",
+                "role": "admin",
+                "action": "kill_switch",
+                "params": {},
+            }
+        )
+
+        self.assertEqual(result["reason"], "ROLE_INCONSISTENCY")
+        self.assertEqual(executor.calls, [])
+        self.assertEqual(log_repo.entries[0]["agent_role"], "unverified")
+        self.assertEqual(
+            log_repo.entries[0]["detection_rule"],
+            "ROLE_IDENTITY_MISMATCH",
+        )
+        self.assertEqual(log_repo.entries[0]["incident_action"], "ALERT")
+        self.assertNotIn(
+            "collector",
+            log_repo.entries[0]["decision_explanation"],
+        )
+        self.assertNotIn(
+            "admin",
+            log_repo.entries[0]["decision_explanation"],
+        )
+
+    def test_control_module_blocks_unknown_agent_identity(self):
+        log_repo = FakeLogRepository()
+        executor = FakeExecutor()
+        control = ControlModule(
+            DetectionModule(),
+            executor=executor,
+            log_repository=log_repo,
+            agent_repository=FakeAgentIdentityRepository(),
+        )
+
+        result = control.process_request(
+            {
+                "agent_id": "UNKNOWN",
+                "role": "admin",
+                "action": "view_logs",
+                "params": {},
+            }
+        )
+
+        self.assertEqual(result["reason"], "UNKNOWN_AGENT_IDENTITY")
+        self.assertEqual(executor.calls, [])
+        self.assertEqual(
+            log_repo.entries[0]["detection_rule"],
+            "UNKNOWN_AGENT_IDENTITY",
+        )
+
+    def test_repeated_role_inconsistency_suspends_registered_agent(self):
+        clock = FakeClock()
+        detection = DetectionModule(
+            role_violation_threshold=3,
+            role_violation_window_seconds=30,
+            clock=clock,
+        )
+        incidents = IncidentModule(clock=clock)
+        log_repo = FakeLogRepository()
+        identities = FakeAgentIdentityRepository(
+            {"A1": {"agent_id": "A1", "role": "collector"}}
+        )
+        control = ControlModule(
+            detection,
+            executor=FakeExecutor(),
+            log_repository=log_repo,
+            incident_module=incidents,
+            agent_repository=identities,
+        )
+        repo = FakeRepo()
+        agent = BaseAgent("A1", "collector", control, llm=FakeLLM(), repo=repo)
+
+        for _ in range(3):
+            control.process_request(
+                {
+                    "agent_id": "A1",
+                    "role": "admin",
+                    "action": "view_logs",
+                    "params": {},
+                }
+            )
+            clock.advance(1)
+
+        self.assertEqual(agent.status, "suspended")
+        self.assertEqual(log_repo.entries[-1]["incident_action"], "SUSPEND")
+        self.assertEqual(log_repo.entries[-1]["blocked_reason"], "ROLE_INCONSISTENCY")
 
     def test_control_module_blocks_malicious_input(self):
         log_repo = FakeLogRepository()
@@ -452,9 +692,127 @@ class TestSystem(unittest.TestCase):
         self.assertEqual(log_repo.entries[-1]["severity"], "MEDIUM")
         self.assertIn("temporarily limited", log_repo.entries[-1]["decision_explanation"])
 
+    def test_degraded_limitation_survives_incident_module_restart(self):
+        clock = FakeClock()
+        repository = FakePersistentAgentRepository(
+            {"A1": {"agent_id": "A1", "role": "collector"}}
+        )
+        incidents = IncidentModule(
+            throttle_seconds=5,
+            clock=clock,
+            agent_repository=repository,
+        )
+        incidents.handle(
+            {
+                "status": "ANOMALY",
+                "agent_id": "A1",
+                "rule_id": "EXCESSIVE_FREQUENCY",
+                "severity": "MEDIUM",
+                "recommended_action": "LIMIT",
+            }
+        )
+
+        restarted = IncidentModule(
+            throttle_seconds=5,
+            clock=clock,
+            agent_repository=repository,
+        )
+        gate = restarted.check_request("A1", "medium")
+
+        self.assertEqual(repository.get_limitation("A1")["level"], "DEGRADED")
+        self.assertFalse(gate["allowed"])
+        self.assertEqual(gate["reason"], "THROTTLED")
+
+    def test_repeated_limit_escalates_to_restricted_low_risk_only(self):
+        clock = FakeClock()
+        repository = FakePersistentAgentRepository(
+            {"A1": {"agent_id": "A1", "role": "collector"}}
+        )
+        incidents = IncidentModule(
+            throttle_seconds=1,
+            clock=clock,
+            agent_repository=repository,
+        )
+        event = {
+            "status": "ANOMALY",
+            "agent_id": "A1",
+            "rule_id": "EXCESSIVE_FREQUENCY",
+            "severity": "MEDIUM",
+            "recommended_action": "LIMIT",
+        }
+
+        incidents.handle(event)
+        incidents.handle(event)
+
+        self.assertEqual(repository.get_limitation("A1")["level"], "RESTRICTED")
+        self.assertTrue(incidents.check_request("A1", "low")["allowed"])
+        blocked = incidents.check_request("A1", "medium")
+        self.assertFalse(blocked["allowed"])
+        self.assertEqual(blocked["reason"], "RESTRICTED_ACTION")
+
+    def test_limitation_recovers_one_level_after_quiet_period(self):
+        clock = FakeClock()
+        repository = FakePersistentAgentRepository(
+            {"A1": {"agent_id": "A1", "role": "collector"}}
+        )
+        incidents = IncidentModule(
+            throttle_seconds=1,
+            recovery_seconds=10,
+            clock=clock,
+            agent_repository=repository,
+        )
+        event = {
+            "status": "ANOMALY",
+            "agent_id": "A1",
+            "rule_id": "EXCESSIVE_FREQUENCY",
+            "severity": "MEDIUM",
+            "recommended_action": "LIMIT",
+        }
+        incidents.handle(event)
+        incidents.handle(event)
+        self.assertEqual(repository.get_limitation("A1")["level"], "RESTRICTED")
+
+        clock.advance(11)
+        gate = incidents.check_request("A1", "medium")
+
+        self.assertEqual(repository.get_limitation("A1")["level"], "DEGRADED")
+        self.assertFalse(gate["allowed"])
+        self.assertEqual(gate["reason"], "THROTTLED")
+
     def test_parse_response_recovers_from_fenced_json(self):
         result = parse_response("```json\n{\"action\": \"view_logs\", \"params\": {}}\n```")
         self.assertEqual(result["action"], "view_logs")
+
+    def test_agent_activity_aggregates_events_and_risk(self):
+        logs = [
+            {
+                "timestamp": "2026-06-13T10:01:00+00:00",
+                "agent": {"id": "A1"},
+                "blocked": {"is_blocked": False},
+                "security": {
+                    "detection_status": "NORMAL",
+                    "risk_score": 20,
+                },
+            },
+            {
+                "timestamp": "2026-06-13T10:04:00+00:00",
+                "agent": {"id": "A1"},
+                "blocked": {"is_blocked": True},
+                "security": {
+                    "detection_status": "ANOMALY",
+                    "risk_score": 80,
+                },
+            },
+        ]
+
+        activity = calculate_agent_activity(logs, [{"agent_id": "A1"}])
+
+        self.assertEqual(activity["A1"]["summary"]["total_events"], 2)
+        self.assertEqual(activity["A1"]["summary"]["blocked"], 1)
+        self.assertEqual(activity["A1"]["summary"]["anomalies"], 1)
+        self.assertEqual(activity["A1"]["summary"]["average_risk"], 50)
+        self.assertEqual(activity["A1"]["series"][0]["approved"], 1)
+        self.assertEqual(activity["A1"]["series"][0]["blocked"], 1)
 
     def test_run_command_blocks_disallowed_command(self):
         engine = ExecutionEngine(log_repository=FakeLogRepository(), llm=FakeLLM())

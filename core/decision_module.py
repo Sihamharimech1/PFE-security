@@ -85,6 +85,18 @@ def explain_decision(
     if blocked_reason == "THROTTLED":
         return f"Agent {agent_id} is temporarily limited; request was blocked until the cooldown expires."
 
+    if blocked_reason == "RESTRICTED_ACTION":
+        return "Request was blocked because the agent is restricted to low-risk operations."
+
+    if blocked_reason == "LIMITATION_SUSPENDED":
+        return "Request was blocked because the agent limitation level is suspended."
+
+    if blocked_reason == "UNKNOWN_AGENT_IDENTITY":
+        return "Request was blocked because the agent identity is not registered."
+
+    if blocked_reason == "ROLE_INCONSISTENCY":
+        return "Request was blocked because the submitted identity attributes were inconsistent."
+
     if filter_status == "MALICIOUS":
         pattern = details.get("pattern") or blocked_reason
         return (

@@ -3,6 +3,7 @@ Aggregate metrics for the supervision dashboard and final report.
 """
 
 from collections import Counter, defaultdict
+from datetime import datetime, timezone
 
 
 SEVERITY_POINTS = {
@@ -33,6 +34,112 @@ def _rate(part, total):
 def _fallback_risk_score(log):
     severity = _nested(log, "security", "severity", default="LOW")
     return SEVERITY_POINTS.get(severity, 1) * 10
+
+
+def _parse_timestamp(value):
+    if isinstance(value, datetime):
+        return value if value.tzinfo else value.replace(tzinfo=timezone.utc)
+    if not value:
+        return None
+    try:
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        return parsed if parsed.tzinfo else parsed.replace(tzinfo=timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def calculate_agent_activity(logs, agents, bucket_minutes=5, max_buckets=24):
+    """Build compact server-side activity and risk series for each agent."""
+    logs = logs or []
+    agents = agents or []
+    agent_ids = {
+        agent.get("agent_id")
+        for agent in agents
+        if isinstance(agent, dict) and agent.get("agent_id")
+    }
+    agent_ids.update(
+        _nested(log, "agent", "id")
+        for log in logs
+        if _nested(log, "agent", "id")
+    )
+
+    buckets_by_agent = defaultdict(dict)
+    summaries = defaultdict(
+        lambda: {
+            "total_events": 0,
+            "approved": 0,
+            "blocked": 0,
+            "anomalies": 0,
+            "risk_total": 0.0,
+            "risk_samples": 0,
+            "max_risk": 0,
+        }
+    )
+
+    for log in logs:
+        agent_id = _nested(log, "agent", "id")
+        timestamp = _parse_timestamp(log.get("timestamp"))
+        if not agent_id or not timestamp:
+            continue
+
+        minute = timestamp.minute - (timestamp.minute % bucket_minutes)
+        bucket_at = timestamp.replace(minute=minute, second=0, microsecond=0)
+        bucket_key = bucket_at.isoformat()
+        bucket = buckets_by_agent[agent_id].setdefault(
+            bucket_key,
+            {
+                "time": bucket_key,
+                "approved": 0,
+                "blocked": 0,
+                "anomalies": 0,
+                "risk_total": 0.0,
+                "risk_samples": 0,
+                "max_risk": 0,
+            },
+        )
+        summary = summaries[agent_id]
+        blocked = _nested(log, "blocked", "is_blocked") is True
+        anomaly = _nested(log, "security", "detection_status") == "ANOMALY"
+        risk_score = _nested(
+            log,
+            "security",
+            "risk_score",
+            default=_fallback_risk_score(log),
+        )
+        risk_score = risk_score if isinstance(risk_score, (int, float)) else 0
+
+        bucket["blocked" if blocked else "approved"] += 1
+        bucket["anomalies"] += int(anomaly)
+        bucket["risk_total"] += risk_score
+        bucket["risk_samples"] += 1
+        bucket["max_risk"] = max(bucket["max_risk"], risk_score)
+
+        summary["total_events"] += 1
+        summary["blocked" if blocked else "approved"] += 1
+        summary["anomalies"] += int(anomaly)
+        summary["risk_total"] += risk_score
+        summary["risk_samples"] += 1
+        summary["max_risk"] = max(summary["max_risk"], risk_score)
+
+    result = {}
+    for agent_id in sorted(agent_ids):
+        series = []
+        for bucket in sorted(buckets_by_agent[agent_id].values(), key=lambda item: item["time"]):
+            samples = bucket.pop("risk_samples")
+            risk_total = bucket.pop("risk_total")
+            bucket["average_risk"] = round(risk_total / samples, 2) if samples else 0
+            series.append(bucket)
+
+        summary = summaries[agent_id]
+        samples = summary.pop("risk_samples")
+        risk_total = summary.pop("risk_total")
+        summary["average_risk"] = round(risk_total / samples, 2) if samples else 0
+        result[agent_id] = {
+            "summary": dict(summary),
+            "series": series[-max_buckets:],
+        }
+
+    return result
 
 
 def calculate_supervision_metrics(logs, agents):

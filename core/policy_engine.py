@@ -1,14 +1,17 @@
 """
-Configurable policy engine for roles, actions, and action sensitivity.
+Private policy engine for roles, actions, and action sensitivity.
 
-The prototype originally kept RBAC and action risk directly in Python modules.
-This engine keeps the same behavior while moving policy data into
-config/policies.json so the backend is easier to audit and evolve.
+MongoDB is the authoritative runtime source. The validated JSON policy is used
+only to bootstrap an empty policy collection or as an emergency fallback when
+MongoDB is unavailable.
 """
 
 from functools import lru_cache
 import json
+import os
 from pathlib import Path
+
+from storage.policy_repository import PolicyRepository
 
 
 POLICY_PATH = Path(__file__).resolve().parents[1] / "config" / "policies.json"
@@ -105,16 +108,48 @@ def _validate_policy(policy):
     return policy
 
 
+def _load_json_policy():
+    with open(POLICY_PATH, "r", encoding="utf-8") as file:
+        return _validate_policy(json.load(file))
+
+
+def _load_mongo_policy(bootstrap_policy):
+    timeout_ms = int(os.getenv("POLICY_MONGO_TIMEOUT_MS", "1500"))
+    repository = PolicyRepository(
+        mongo_timeout_ms=timeout_ms,
+        connect_timeout_ms=timeout_ms,
+        socket_timeout_ms=timeout_ms,
+    )
+    document = repository.get_active()
+    if not document:
+        document = repository.bootstrap(bootstrap_policy)
+
+    policy = _validate_policy(document.get("policy"))
+    policy["_policy_source"] = "mongo"
+    policy["_policy_id"] = document.get("policy_id")
+    policy["_policy_checksum"] = document.get("checksum_sha256")
+    return policy
+
+
 @lru_cache(maxsize=1)
 def load_policy():
+    json_policy = None
+    json_error = None
     try:
-        with open(POLICY_PATH, "r", encoding="utf-8") as file:
-            policy = json.load(file)
-        return _validate_policy(policy)
+        json_policy = _load_json_policy()
     except Exception as exc:
-        fallback = dict(FALLBACK_POLICY)
-        fallback["_load_error"] = f"{type(exc).__name__}: {exc}"
-        return fallback
+        json_error = f"{type(exc).__name__}: {exc}"
+        json_policy = _validate_policy(dict(FALLBACK_POLICY))
+
+    try:
+        return _load_mongo_policy(json_policy)
+    except Exception as exc:
+        policy = dict(json_policy)
+        policy["_policy_source"] = "json_fallback"
+        policy["_mongo_error"] = f"{type(exc).__name__}: {exc}"
+        if json_error:
+            policy["_load_error"] = json_error
+        return policy
 
 
 def refresh_policy_cache():
@@ -123,6 +158,10 @@ def refresh_policy_cache():
 
 def policy_load_error():
     return load_policy().get("_load_error")
+
+
+def policy_source():
+    return load_policy().get("_policy_source", "unknown")
 
 
 def _role_allowed_actions(policy, role, seen=None):
@@ -170,24 +209,3 @@ def action_sensitivity(action):
 
 def execution_policy():
     return load_policy().get("execution", FALLBACK_POLICY["execution"])
-
-
-def policy_summary():
-    policy = load_policy()
-    roles = {
-        role: {
-            "description": role_policy.get("description"),
-            "allowed_actions": allowed_actions_for_role(role),
-            "direct_actions": role_policy.get("allowed_actions", []),
-            "inherits": role_policy.get("inherits", []),
-        }
-        for role, role_policy in policy.get("roles", {}).items()
-    }
-    return {
-        "version": policy.get("version"),
-        "load_error": policy.get("_load_error"),
-        "roles": roles,
-        "actions": policy.get("actions", {}),
-        "execution": execution_policy(),
-        "known_actions": known_actions(),
-    }

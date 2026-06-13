@@ -156,6 +156,7 @@ def seed_demo():
         executor=executor,
         log_repository=log_repo,
         incident_repository=incident_repo,
+        agent_repository=agent_repo,
     )
 
     agents = {

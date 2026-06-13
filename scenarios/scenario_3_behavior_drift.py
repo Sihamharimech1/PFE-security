@@ -33,7 +33,7 @@ def run():
     print_result("Anomaly rule", anomaly_log["detection_rule"])
     print_result("Incident action", anomaly_log["incident_action"])
     print_result("Blocked follow-up", blocked_result["reason"])
-    print_result("Outcome", "PASS - drift detected and agent temporarily limited")
+    print_result("Outcome", "PASS - drift detected and agent moved to DEGRADED")
     return system
 
 

@@ -100,6 +100,8 @@ class IncidentResponse:
     agent_id: Optional[str] = None
     severity: Optional[str] = None
     duration_seconds: Optional[float] = None
+    limitation_level: Optional[str] = None
+    previous_limitation_level: Optional[str] = None
     incident_id: Optional[str] = None
     lifecycle_status: Optional[str] = None
     incident_persistence_error: Optional[str] = None

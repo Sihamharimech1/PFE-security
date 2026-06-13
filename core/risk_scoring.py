@@ -98,6 +98,14 @@ def score_decision(
 
     if blocked_reason == "THROTTLED":
         score = _add(20, factors, score, "active_throttle")
+    elif blocked_reason == "RESTRICTED_ACTION":
+        score = _add(30, factors, score, "restricted_action")
+    elif blocked_reason == "LIMITATION_SUSPENDED":
+        score = _add(40, factors, score, "limitation_suspended")
+    elif blocked_reason == "UNKNOWN_AGENT_IDENTITY":
+        score = _add(35, factors, score, "unknown_agent_identity")
+    elif blocked_reason == "ROLE_INCONSISTENCY":
+        score = _add(40, factors, score, "role_identity_inconsistency")
 
     if incident_action == "ALERT":
         score = _add(10, factors, score, "incident_alert")

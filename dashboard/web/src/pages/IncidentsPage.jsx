@@ -1,14 +1,11 @@
-import { useState } from "react";
+import { Search, X } from "lucide-react";
+import { useMemo, useState } from "react";
 import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
+import { formatTime } from "../lib/formatTime";
 
 const incidentStatuses = ["OPEN", "ACKNOWLEDGED", "RESOLVED", "FALSE_POSITIVE"];
-
-function formatDate(value) {
-  if (!value) return "-";
-  return new Date(value).toLocaleString();
-}
 
 function jsonPreview(value) {
   if (!value || Object.keys(value).length === 0) return "{}";
@@ -44,6 +41,34 @@ function DetailRow({ label, value, mono = false }) {
 export function IncidentsPage({ incidents = [], onIncidentStatusChange }) {
   const [pendingIncident, setPendingIncident] = useState("");
   const [selectedIncident, setSelectedIncident] = useState(null);
+  const [query, setQuery] = useState("");
+
+  const filteredIncidents = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return incidents;
+
+    return incidents.filter((incident) => {
+      const searchable = [
+        incident.incident_id,
+        incident.agent_id,
+        incident.rule_id,
+        incident.status,
+        incident.severity,
+        incident.risk_level,
+        incident.response_action,
+        incident.response_status,
+        incident.recommended_action,
+        incidentReason(incident),
+        JSON.stringify(incident.details ?? {}),
+        JSON.stringify(incident.notes ?? []),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return searchable.includes(normalized);
+    });
+  }, [incidents, query]);
 
   async function changeIncidentStatus(incidentId, status) {
     if (!incidentId || !onIncidentStatusChange) return;
@@ -62,8 +87,30 @@ export function IncidentsPage({ incidents = [], onIncidentStatusChange }) {
           <p className="empty-state">No incident documents found in the MongoDB `incidents` collection.</p>
         ) : (
           <>
+            <div className="incident-search">
+              <Search aria-hidden="true" size={17} />
+              <input
+                className="filter-input"
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Search incidents"
+                aria-label="Search incidents"
+              />
+              {query ? (
+                <button
+                  className="icon-button"
+                  type="button"
+                  title="Clear search"
+                  aria-label="Clear search"
+                  onClick={() => setQuery("")}
+                >
+                  <X size={16} />
+                </button>
+              ) : null}
+            </div>
             <div className="table-meta">
-              Showing {incidents.length} incidents. Click a row to inspect who triggered it and why.
+              Showing {filteredIncidents.length} of {incidents.length} incidents.
             </div>
 
             <div className="table-shell table-scroll">
@@ -82,13 +129,13 @@ export function IncidentsPage({ incidents = [], onIncidentStatusChange }) {
                   </tr>
                 </thead>
                 <tbody>
-                  {incidents.map((incident) => (
+                  {filteredIncidents.map((incident) => (
                     <tr
                       key={incident.incident_id}
                       className="clickable-row"
                       onClick={() => setSelectedIncident(incident)}
                     >
-                      <td className="text-[var(--muted)]">{formatDate(incident.created_at)}</td>
+                      <td className="text-[var(--muted)]">{formatTime(incident.created_at)}</td>
                       <td className="font-mono text-xs">{incident.incident_id}</td>
                       <td>{incident.agent_id ?? "-"}</td>
                       <td>{incident.rule_id ?? "-"}</td>
@@ -117,6 +164,9 @@ export function IncidentsPage({ incidents = [], onIncidentStatusChange }) {
                   ))}
                 </tbody>
               </table>
+              {!filteredIncidents.length ? (
+                <p className="empty-state">No incidents match this search.</p>
+              ) : null}
             </div>
           </>
         )}
@@ -153,8 +203,8 @@ export function IncidentsPage({ incidents = [], onIncidentStatusChange }) {
               <DetailRow label="Recommended action" value={selectedIncident.recommended_action} />
               <DetailRow label="Response action" value={selectedIncident.response_action} />
               <DetailRow label="Response status" value={selectedIncident.response_status} />
-              <DetailRow label="Created" value={formatDate(selectedIncident.created_at)} />
-              <DetailRow label="Updated" value={formatDate(selectedIncident.updated_at)} />
+              <DetailRow label="Created" value={formatTime(selectedIncident.created_at)} />
+              <DetailRow label="Updated" value={formatTime(selectedIncident.updated_at)} />
             </div>
 
             <div className="json-block">
