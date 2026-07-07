@@ -1,13 +1,13 @@
 from scenarios.scenario_support import build_system, latest_log, print_header, print_result
 
 
-def run():
+def run(persist=False):
     print_header(
         2,
         "Forbidden action",
         "A collector attempts an action outside its role and RBAC blocks it.",
     )
-    system = build_system()
+    system = build_system(persist=persist)
     collector = system["agents"]["A1"]
 
     result = collector.execute_action("delete_data", {"target": "secret.txt"})
@@ -26,4 +26,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    run(persist=True)

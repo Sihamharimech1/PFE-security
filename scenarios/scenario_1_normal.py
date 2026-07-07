@@ -1,13 +1,13 @@
 from scenarios.scenario_support import build_system, latest_log, print_header, print_result
 
 
-def run():
+def run(persist=False):
     print_header(
         1,
         "Normal operation",
         "Each agent performs an action allowed by its role; no anomaly is triggered.",
     )
-    system = build_system(frequency_threshold=10)
+    system = build_system(frequency_threshold=10, persist=persist)
     agents = system["agents"]
 
     results = {
@@ -42,4 +42,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    run(persist=True)

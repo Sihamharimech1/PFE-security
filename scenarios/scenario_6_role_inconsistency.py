@@ -1,13 +1,13 @@
 from scenarios.scenario_support import build_system, latest_log, print_header, print_result
 
 
-def run():
+def run(persist=False):
     print_header(
         6,
         "Role identity inconsistency",
         "A registered agent claims a different role and is blocked before RBAC evaluation.",
     )
-    system = build_system()
+    system = build_system(persist=persist)
 
     result = system["control"].process_request(
         {
@@ -32,4 +32,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    run(persist=True)

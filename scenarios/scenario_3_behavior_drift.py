@@ -1,7 +1,7 @@
 from scenarios.scenario_support import build_system, latest_log, print_header, print_result
 
 
-def run():
+def run(persist=False):
     print_header(
         3,
         "Behavior drift",
@@ -11,6 +11,7 @@ def run():
         frequency_threshold=3,
         frequency_window_seconds=30,
         throttle_seconds=5,
+        persist=persist,
     )
     collector = system["agents"]["A1"]
     clock = system["clock"]
@@ -38,4 +39,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    run(persist=True)

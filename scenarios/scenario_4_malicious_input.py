@@ -1,13 +1,13 @@
 from scenarios.scenario_support import build_system, latest_log, print_header, print_result
 
 
-def run():
+def run(persist=False):
     print_header(
         4,
         "Malicious input",
         "Suspicious prompt-injection content is filtered before execution.",
     )
-    system = build_system()
+    system = build_system(persist=persist)
     collector = system["agents"]["A1"]
 
     result = collector.execute_action(
@@ -32,4 +32,4 @@ def run():
 
 
 if __name__ == "__main__":
-    run()
+    run(persist=True)

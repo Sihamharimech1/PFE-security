@@ -1,8 +1,9 @@
 """
 Shared deterministic helpers for the official PFE scenarios.
 
-The scenarios intentionally avoid MongoDB, network calls, and live LLM calls so
-they stay reproducible during demos and automated checks.
+By default the scenarios avoid MongoDB, network calls, and live LLM calls so
+they stay reproducible during demos and automated checks. When persist=True,
+scenario logs and incidents are also written to MongoDB for dashboard demos.
 """
 
 from agents.base_agent import BaseAgent
@@ -21,6 +22,17 @@ class MemoryLogRepository:
 
     def get_recent(self, limit=50):
         return list(reversed(self.entries[-limit:]))
+
+
+class MirroredLogRepository(MemoryLogRepository):
+    def __init__(self, repository):
+        super().__init__()
+        self.repository = repository
+
+    def create_log(self, **kwargs):
+        inserted_id = self.repository.create_log(**kwargs)
+        self.entries.append(kwargs)
+        return inserted_id
 
 
 class MemoryAgentRepository:
@@ -69,14 +81,27 @@ class ScenarioClock:
 
 def build_system(
     *,
+    persist=False,
     frequency_threshold=5,
     frequency_window_seconds=60,
     role_violation_threshold=3,
     role_violation_window_seconds=120,
     throttle_seconds=2,
 ):
+    agent_repository = None
+    incident_repository = None
+    if persist:
+        from storage.agent_repository import AgentRepository
+        from storage.incident_repository import IncidentRepository
+        from storage.log_repository import LogRepository
+
+        logs = MirroredLogRepository(LogRepository())
+        agent_repository = AgentRepository()
+        incident_repository = IncidentRepository()
+    else:
+        logs = MemoryLogRepository()
+
     clock = ScenarioClock()
-    logs = MemoryLogRepository()
     executor = DeterministicExecutor()
     detection = DetectionModule(
         frequency_threshold=frequency_threshold,
@@ -85,12 +110,19 @@ def build_system(
         role_violation_window_seconds=role_violation_window_seconds,
         clock=clock,
     )
-    incidents = IncidentModule(throttle_seconds=throttle_seconds, clock=clock)
+    incidents = IncidentModule(
+        throttle_seconds=throttle_seconds,
+        clock=clock,
+        incident_repository=incident_repository,
+        agent_repository=agent_repository,
+    )
     control = ControlModule(
         detection,
         executor=executor,
         log_repository=logs,
         incident_module=incidents,
+        incident_repository=incident_repository,
+        agent_repository=agent_repository,
     )
 
     repositories = {}
@@ -102,7 +134,7 @@ def build_system(
         ("A4", "executor"),
         ("A5", "admin"),
     ]:
-        repo = MemoryAgentRepository()
+        repo = agent_repository if persist else MemoryAgentRepository()
         repositories[agent_id] = repo
         agents[agent_id] = BaseAgent(agent_id, role, control, repo=repo)
 
