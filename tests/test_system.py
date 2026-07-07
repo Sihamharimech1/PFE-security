@@ -1,8 +1,10 @@
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 from agents.base_agent import BaseAgent
+from agents.orchestrator import AgentOrchestrator
 from core.control_module import ControlModule
 from core.detection_module import DetectionModule
 from core.executor import ExecutionEngine
@@ -19,11 +21,20 @@ from core.policy_engine import (
     policy_source,
     refresh_policy_cache,
 )
-from core.supervision_metrics import calculate_agent_activity
-from dashboard.api_server import _parse_bool, _parse_limit
+from core.supervision_metrics import calculate_agent_activity, calculate_incident_response_metrics
+from dashboard.api_server import (
+    _parse_bool,
+    _parse_limit,
+    _valid_login_text,
+    authenticate_login,
+    build_scenarios,
+    create_token,
+    verify_token,
+)
 from storage.incident_repository import IncidentRepository
 from storage.log_repository import LogRepository
 from storage.policy_repository import PolicyRepository
+from storage.auth_repository import _hash_password, verify_password
 
 
 class FakeRepo:
@@ -121,6 +132,15 @@ class FakeIncidentRepository:
             }
         )
         return incident_id
+
+
+class FakeAuthRepository:
+    def __init__(self, username="admin", password="supervisor"):
+        self.username = username
+        self.password = password
+
+    def verify_credentials(self, username, password):
+        return username == self.username and password == self.password
 
 
 class FakeExecutor:
@@ -349,6 +369,88 @@ class TestSystem(unittest.TestCase):
         self.assertEqual(_parse_limit({"limit": ["9999"]}), 500)
         self.assertEqual(_parse_limit({"limit": ["bad"]}), 50)
 
+    def test_incident_response_metrics_use_lifecycle_history(self):
+        incidents = [
+            {
+                "incident_id": "INC-1",
+                "status": "ACKNOWLEDGED",
+                "created_at": "2026-07-07T10:00:00+00:00",
+                "history": [
+                    {"status": "OPEN", "changed_at": "2026-07-07T10:00:00+00:00"},
+                    {"status": "ACKNOWLEDGED", "changed_at": "2026-07-07T10:05:00+00:00"},
+                ],
+            },
+            {
+                "incident_id": "INC-2",
+                "status": "RESOLVED",
+                "created_at": "2026-07-07T11:00:00+00:00",
+                "history": [
+                    {"status": "OPEN", "changed_at": "2026-07-07T11:00:00+00:00"},
+                    {"status": "ACKNOWLEDGED", "changed_at": "2026-07-07T11:10:00+00:00"},
+                    {"status": "RESOLVED", "changed_at": "2026-07-07T11:45:00+00:00"},
+                ],
+            },
+        ]
+
+        metrics = calculate_incident_response_metrics(incidents)
+
+        self.assertEqual(metrics["mtta"]["seconds"], 450)
+        self.assertEqual(metrics["mtta"]["minutes"], 7.5)
+        self.assertEqual(metrics["mtta"]["sample_count"], 2)
+        self.assertEqual(metrics["mttr"]["seconds"], 2700)
+        self.assertEqual(metrics["mttr"]["minutes"], 45)
+        self.assertEqual(metrics["mttr"]["sample_count"], 1)
+
+    def test_dashboard_scenarios_include_coordinated_attack(self):
+        scenarios = build_scenarios()
+        scenario = next(item for item in scenarios if item["id"] == "S5")
+
+        self.assertEqual(scenario["title"], "Coordinated attack")
+        self.assertEqual(
+            scenario["command"],
+            "python -m scenarios.scenario_5_coordinated_attack",
+        )
+        self.assertIn("A1 reads sample_logs/auth.log", scenario["steps"])
+        self.assertIn("A4 is suspended by incident response", scenario["steps"])
+
+    def test_dashboard_jwt_round_trip_and_rejects_tampering(self):
+        token = create_token("admin")
+        payload = verify_token(token)
+
+        self.assertEqual(payload["sub"], "admin")
+        self.assertIsNone(verify_token(token + "tampered"))
+
+    def test_dashboard_login_rejects_injection_style_credentials(self):
+        self.assertFalse(_valid_login_text("admin' OR '1'='1", "password123"))
+        self.assertFalse(_valid_login_text("admin", "' OR '1'='1"))
+
+        payload, status = authenticate_login(
+            {"username": "admin' OR '1'='1", "password": "password123"},
+            auth_repository=FakeAuthRepository(),
+        )
+
+        self.assertEqual(status, 401)
+        self.assertEqual(payload["error"], "Invalid credentials")
+
+    def test_dashboard_login_uses_repository_backed_credentials(self):
+        payload, status = authenticate_login(
+            {"username": "admin", "password": "supervisor"},
+            auth_repository=FakeAuthRepository(),
+        )
+
+        self.assertEqual(status, 200)
+        self.assertTrue(payload["ok"])
+        self.assertIsNotNone(verify_token(payload["token"]))
+
+    def test_password_hash_is_salted_and_verifiable(self):
+        first = _hash_password("supervisor")
+        second = _hash_password("supervisor")
+
+        self.assertNotEqual(first["salt"], second["salt"])
+        self.assertNotEqual(first["hash"], second["hash"])
+        self.assertTrue(verify_password("supervisor", first))
+        self.assertFalse(verify_password("wrong-password", first))
+
     def test_base_agent_persists_status_once_per_change(self):
         repo = FakeRepo()
         agent = BaseAgent("A1", "collector", DummyControl(), llm=FakeLLM(), repo=repo)
@@ -576,6 +678,148 @@ class TestSystem(unittest.TestCase):
         self.assertLess(log_repo.entries[0]["risk_score"], 30)
         self.assertEqual(log_repo.entries[0]["risk_level"], "LOW")
         self.assertIn("was allowed", log_repo.entries[0]["decision_explanation"])
+
+    def test_orchestrator_records_multi_agent_handoff_metadata(self):
+        log_repo = FakeLogRepository()
+        control = ControlModule(
+            FakeDetection("NORMAL"),
+            executor=FakeExecutor({"status": "success", "message": "done"}),
+            log_repository=log_repo,
+        )
+        agents = [
+            BaseAgent("A1", "collector", control, llm=FakeLLM(), repo=FakeRepo()),
+            BaseAgent("A2", "analyst", control, llm=FakeLLM(), repo=FakeRepo()),
+            BaseAgent("A3", "writer", control, llm=FakeLLM(), repo=FakeRepo()),
+            BaseAgent("A4", "executor", control, llm=FakeLLM(), repo=FakeRepo()),
+            BaseAgent("A5", "admin", control, llm=FakeLLM(), repo=FakeRepo()),
+        ]
+        orchestrator = AgentOrchestrator(agents)
+
+        result = orchestrator.run_sequence(
+            [
+                {
+                    "agent": "collector",
+                    "action": "fetch_api",
+                    "params": {"url": "https://example.com"},
+                    "stage": "collection",
+                },
+                {
+                    "agent": "analyst",
+                    "action": "analyze_data",
+                    "params": {"data": "sample threat data"},
+                    "stage": "analysis",
+                },
+                {
+                    "agent": "writer",
+                    "action": "write_report",
+                    "params": {"analyst_output": "high risk", "report_type": "security"},
+                    "stage": "reporting",
+                },
+                {
+                    "agent": "executor",
+                    "action": "write_data",
+                    "params": {"target": "output_config/orchestrated_response.json", "content": {}},
+                    "stage": "response",
+                },
+                {
+                    "agent": "admin",
+                    "action": "view_logs",
+                    "params": {},
+                    "stage": "review",
+                },
+            ],
+            workflow="test_multi_agent",
+        )
+
+        self.assertEqual(result["status"], "completed")
+        self.assertEqual(len(log_repo.entries), 5)
+        correlation_ids = {
+            entry["coordination"]["correlation_id"]
+            for entry in log_repo.entries
+        }
+        self.assertEqual(correlation_ids, {result["correlation_id"]})
+        self.assertTrue(
+            all(entry["coordination"]["source"] == "orchestrator" for entry in log_repo.entries)
+        )
+        self.assertIsNone(log_repo.entries[0]["coordination"]["triggered_by"])
+        self.assertEqual(log_repo.entries[1]["coordination"]["triggered_by"], "A1")
+        self.assertEqual(log_repo.entries[2]["coordination"]["triggered_by"], "A2")
+        self.assertEqual(log_repo.entries[3]["coordination"]["triggered_by"], "A3")
+        self.assertEqual(log_repo.entries[4]["coordination"]["triggered_by"], "A4")
+
+    def test_cross_agent_sensitive_read_then_high_risk_export_is_blocked_and_suspends(self):
+        log_repo = FakeLogRepository()
+        log_repo.entries.append(
+            {
+                "timestamp": datetime.now(timezone.utc),
+                "agent": {"id": "A1", "role": "collector"},
+                "request": {
+                    "action": "read_data",
+                    "params": {"path": "sample_logs/auth.log"},
+                },
+                "security": {"detection_status": "NORMAL"},
+                "blocked": {"is_blocked": False},
+            }
+        )
+        control = ControlModule(
+            DetectionModule(),
+            executor=FakeExecutor({"status": "success", "message": "exported"}),
+            log_repository=log_repo,
+        )
+        repo = FakeRepo()
+        executor_agent = BaseAgent("A4", "executor", control, llm=FakeLLM(), repo=repo)
+
+        result = executor_agent.execute_action(
+            "write_data",
+            {"target": "output_config/export.json", "content": {"copied": True}},
+        )
+
+        self.assertEqual(result["status"], "blocked")
+        self.assertEqual(result["reason"], "CROSS_AGENT_CORRELATION")
+        self.assertEqual(executor_agent.status, "suspended")
+        self.assertEqual(control.executor.calls, [])
+        self.assertEqual(log_repo.entries[-1]["detection_rule"], "CROSS_AGENT_CORRELATION")
+        self.assertEqual(log_repo.entries[-1]["incident_action"], "SUSPEND")
+        self.assertEqual(log_repo.entries[-1]["incident_status"], "SUSPENDED")
+        self.assertEqual(log_repo.entries[-1]["execution_status"], "NOT_EXECUTED")
+        self.assertEqual(log_repo.entries[-1]["blocked_reason"], "CROSS_AGENT_CORRELATION")
+        self.assertEqual(log_repo.entries[-1]["final_status"], "BLOCKED")
+
+    def test_cross_agent_sensitive_read_then_report_executes_with_alert_only(self):
+        log_repo = FakeLogRepository()
+        log_repo.entries.append(
+            {
+                "timestamp": datetime.now(timezone.utc),
+                "agent": {"id": "A1", "role": "collector"},
+                "request": {
+                    "action": "read_data",
+                    "params": {"path": "sample_logs/auth.log"},
+                },
+                "security": {"detection_status": "NORMAL"},
+                "blocked": {"is_blocked": False},
+            }
+        )
+        executor = FakeExecutor({"status": "success", "message": "reported"})
+        control = ControlModule(
+            DetectionModule(),
+            executor=executor,
+            log_repository=log_repo,
+        )
+        repo = FakeRepo()
+        writer_agent = BaseAgent("A3", "writer", control, llm=FakeLLM(), repo=repo)
+
+        result = writer_agent.execute_action(
+            "write_report",
+            {"analyst_output": "sensitive authentication findings"},
+        )
+
+        self.assertEqual(result["status"], "success")
+        self.assertEqual(writer_agent.status, "active")
+        self.assertEqual(executor.calls, [("write_report", {"analyst_output": "sensitive authentication findings"})])
+        self.assertEqual(log_repo.entries[-1]["detection_rule"], "CROSS_AGENT_CORRELATION")
+        self.assertEqual(log_repo.entries[-1]["incident_action"], "ALERT")
+        self.assertEqual(log_repo.entries[-1]["incident_status"], "ALERTED")
+        self.assertEqual(log_repo.entries[-1]["final_status"], "EXECUTED_WITH_ALERT")
 
     def test_control_module_blocks_invalid_request_before_execution(self):
         log_repo = FakeLogRepository()

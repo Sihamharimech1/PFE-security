@@ -19,6 +19,9 @@ React/Tailwind dashboard named **Supervision Center**.
 ## Useful commands
 
 ```powershell
+python main.py list
+python main.py scenario5
+python main.py tests
 python -m unittest tests.test_system tests.test_scenarios -v
 python -m dashboard.api_server
 cd dashboard\web
@@ -31,4 +34,10 @@ The backend optimization summary is available at:
 
 ```text
 docs/backend_optimization_report.md
+```
+
+The soutenance demo guide is available at:
+
+```text
+docs/soutenance_demo.md
 ```

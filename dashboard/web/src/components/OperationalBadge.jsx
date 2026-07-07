@@ -24,6 +24,7 @@ const statusStyles = {
   NOT_CHECKED: "badge-neutral",
   NOT_TRIGGERED: "badge-neutral",
   OPEN: "badge-warn",
+  ORCHESTRATED: "badge-info",
   RESOLVED: "badge-good",
   RESTRICTED: "badge-severe",
   STOPPED: "badge-danger",

@@ -10,7 +10,7 @@ class AnalystAgent(BaseAgent):
         super().__init__(agent_id, "analyst", control, llm=llm, repo=repo)
         self.llm = llm if llm is not None else LLMProvider()
 
-    def think_and_act(self, user_input):
+    def think_and_act(self, user_input, coordination=None):
         safe_user_input = json.dumps(user_input)
         prompt = f"""
 You are a routing agent. Your ONLY job is to classify the user input and return the correct action.
@@ -69,5 +69,6 @@ Return ONLY this JSON, no explanation, no markdown:
 
         return self.execute_action(
             decision["action"],
-            decision["params"]
+            decision["params"],
+            coordination=coordination,
         )

@@ -6,14 +6,19 @@ so the dashboard stays lightweight and does not introduce a separate web
 framework just to expose read-only data.
 """
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import base64
+import hmac
+import hashlib
 import json
 from concurrent.futures import ThreadPoolExecutor, wait
 import os
+import re
 from urllib.parse import parse_qs, urlparse
 
 from storage.agent_repository import AgentRepository
+from storage.auth_repository import AuthRepository, bootstrap_dashboard_user_from_env
 from storage.incident_repository import IncidentRepository, VALID_INCIDENT_STATUSES
 from storage.log_repository import LogRepository
 from storage.mongo_client import MongoDBClient
@@ -25,12 +30,113 @@ PORT = 8000
 REPOSITORY_TIMEOUT_SECONDS = float(os.getenv("DASHBOARD_REPOSITORY_TIMEOUT_SECONDS", "10"))
 MONGO_TIMEOUT_MS = int(os.getenv("DASHBOARD_MONGO_TIMEOUT_MS", "8000"))
 VALID_AGENT_STATUSES = {"active", "suspended", "stopped"}
+AUTH_PUBLIC_PATHS = {"/api/health", "/api/login"}
+JWT_SECRET = os.getenv("DASHBOARD_JWT_SECRET", "change-this-dashboard-secret")
+JWT_TTL_MINUTES = int(os.getenv("DASHBOARD_JWT_TTL_MINUTES", "60"))
+USERNAME_PATTERN = re.compile(r"^[A-Za-z0-9_.-]{3,32}$")
 
 
 def _json_default(value):
     if isinstance(value, datetime):
         return value.isoformat()
     return str(value)
+
+
+def _b64url_encode(raw):
+    return base64.urlsafe_b64encode(raw).rstrip(b"=").decode("ascii")
+
+
+def _b64url_decode(value):
+    padding = "=" * (-len(value) % 4)
+    return base64.urlsafe_b64decode((value + padding).encode("ascii"))
+
+
+def _jwt_sign(message):
+    return _b64url_encode(
+        hmac.new(JWT_SECRET.encode("utf-8"), message.encode("ascii"), hashlib.sha256).digest()
+    )
+
+
+def _safe_json_loads(raw):
+    try:
+        return json.loads(raw.decode("utf-8"))
+    except Exception:
+        return None
+
+
+def _valid_login_text(username, password):
+    if not isinstance(username, str) or not isinstance(password, str):
+        return False
+    if not USERNAME_PATTERN.fullmatch(username):
+        return False
+    if not 8 <= len(password) <= 128:
+        return False
+    # There is no SQL backend here, but rejecting SQL/control metacharacters
+    # keeps credential handling strict and demo-friendly.
+    suspicious = ["'", '"', ";", "--", "/*", "*/", "#", "\\", "\x00"]
+    lowered = f"{username} {password}".lower()
+    sql_words = [" or ", " and ", " union ", " select ", " drop ", " insert ", " update ", " delete "]
+    return not any(item in lowered for item in suspicious + sql_words)
+
+
+def create_token(username):
+    now = datetime.now(timezone.utc)
+    payload = {
+        "sub": username,
+        "iat": int(now.timestamp()),
+        "exp": int((now + timedelta(minutes=JWT_TTL_MINUTES)).timestamp()),
+        "scope": "dashboard",
+    }
+    header = {"alg": "HS256", "typ": "JWT"}
+    header_part = _b64url_encode(json.dumps(header, separators=(",", ":")).encode("utf-8"))
+    payload_part = _b64url_encode(json.dumps(payload, separators=(",", ":")).encode("utf-8"))
+    signing_input = f"{header_part}.{payload_part}"
+    return f"{signing_input}.{_jwt_sign(signing_input)}"
+
+
+def verify_token(token):
+    if not isinstance(token, str) or token.count(".") != 2:
+        return None
+    header_part, payload_part, signature = token.split(".")
+    signing_input = f"{header_part}.{payload_part}"
+    expected = _jwt_sign(signing_input)
+    if not hmac.compare_digest(signature, expected):
+        return None
+    try:
+        header = json.loads(_b64url_decode(header_part))
+        payload = json.loads(_b64url_decode(payload_part))
+    except Exception:
+        return None
+    if header.get("alg") != "HS256" or payload.get("scope") != "dashboard":
+        return None
+    if int(payload.get("exp", 0)) < int(datetime.now(timezone.utc).timestamp()):
+        return None
+    return payload
+
+
+def authenticate_login(body, auth_repository=None):
+    username = body.get("username") if isinstance(body, dict) else None
+    password = body.get("password") if isinstance(body, dict) else None
+    if not _valid_login_text(username, password):
+        return {"error": "Invalid credentials"}, 401
+    try:
+        repository = auth_repository or AuthRepository(
+            mongo_timeout_ms=MONGO_TIMEOUT_MS,
+            connect_timeout_ms=3000,
+            socket_timeout_ms=3000,
+        )
+        authenticated = repository.verify_credentials(username, password)
+    except Exception as exc:
+        return {"error": f"Authentication store unavailable: {type(exc).__name__}"}, 503
+    if not authenticated:
+        return {"error": "Invalid credentials"}, 401
+    return {
+        "ok": True,
+        "token": create_token(username),
+        "token_type": "Bearer",
+        "expires_in_minutes": JWT_TTL_MINUTES,
+        "user": {"username": username},
+    }, 200
 
 
 def _mongo_target():
@@ -206,6 +312,102 @@ def fetch_incidents_for_query(query):
         return {"error": f"{type(exc).__name__}: {exc}"}, 500
 
 
+def build_scenarios():
+    return [
+        {
+            "id": "S1",
+            "title": "Normal workflow",
+            "objective": "Legitimate agent actions pass through validation, RBAC, filtering, detection, and execution.",
+            "signal": "No anomaly",
+            "response": "Execution allowed",
+            "tone": "emerald",
+            "command": "python -m scenarios.scenario_1_normal",
+            "steps": [
+                "A1 collects data",
+                "A2 analyzes it",
+                "A3 writes a report",
+                "A4 applies a safe action",
+                "A5 reviews logs",
+            ],
+        },
+        {
+            "id": "S2",
+            "title": "RBAC violation",
+            "objective": "A collector attempts an action outside its authorized role.",
+            "signal": "RBAC denied",
+            "response": "Action blocked",
+            "tone": "rose",
+            "command": "python -m scenarios.scenario_2_rbac_violation",
+            "steps": [
+                "A1 claims collector role",
+                "A1 attempts delete_data",
+                "Control module denies the action before execution",
+            ],
+        },
+        {
+            "id": "S3",
+            "title": "Behavior drift",
+            "objective": "Repeated requests cross the detection threshold for abnormal frequency.",
+            "signal": "Excessive frequency",
+            "response": "Alert + limitation",
+            "tone": "amber",
+            "command": "python -m scenarios.scenario_3_behavior_drift",
+            "steps": [
+                "A1 repeats fetch_api",
+                "Detection module counts the frequency window",
+                "Incident response limits the agent",
+            ],
+        },
+        {
+            "id": "S4",
+            "title": "Malicious input",
+            "objective": "Suspicious prompt-injection style content is filtered before execution.",
+            "signal": "Input blocked",
+            "response": "Alert raised",
+            "tone": "violet",
+            "command": "python -m scenarios.scenario_4_malicious_input",
+            "steps": [
+                "A1 submits hostile instruction text",
+                "Input filter detects the pattern",
+                "Execution is stopped and an incident is logged",
+            ],
+        },
+        {
+            "id": "S5",
+            "title": "Coordinated attack",
+            "objective": "One agent reads sensitive authentication logs, then other agents attempt report/export actions within the correlation window.",
+            "signal": "Cross-agent correlation",
+            "response": "A3 alerted, A4 blocked + suspended",
+            "tone": "rose",
+            "command": "python -m scenarios.scenario_5_coordinated_attack",
+            "steps": [
+                "A1 reads sample_logs/auth.log",
+                "A3 writes a security report and receives ALERT",
+                "A4 attempts write_data export and is BLOCKED",
+                "A4 is suspended by incident response",
+                "A5 reviews live supervision logs",
+            ],
+            "dashboard_targets": ["Logs", "Alerts", "Incidents", "Agents"],
+        },
+        {
+            "id": "S6",
+            "title": "Role identity inconsistency",
+            "objective": "A registered agent claims a different role and is blocked before RBAC evaluation.",
+            "signal": "Identity mismatch",
+            "response": "Request blocked + alert",
+            "tone": "rose",
+            "command": "python -m scenarios.scenario_6_role_inconsistency",
+            "steps": [
+                "A1 is registered as collector",
+                "A1 claims admin role",
+                "A1 attempts kill_switch",
+                "Control module blocks the request before execution",
+            ],
+            "dashboard_targets": ["Logs", "Alerts"],
+        },
+    ]
+
+
 def build_payload():
     raw_agents, raw_logs, raw_activity_logs, raw_incidents = _collect_repository_data()
     agents, agents_error = _normalize_list(raw_agents)
@@ -249,7 +451,7 @@ def build_payload():
             if error
         ],
     }
-    metrics = calculate_supervision_metrics(logs, agents)
+    metrics = calculate_supervision_metrics(logs, agents, incidents)
     agent_activity = calculate_agent_activity(activity_logs, agents)
     incident_counts = {}
     for incident in incidents:
@@ -264,6 +466,7 @@ def build_payload():
         "incidents": incidents,
         "metrics": metrics,
         "agent_activity": agent_activity,
+        "scenarios": build_scenarios(),
         "incident_lifecycle": {
             "total": len(incidents),
             "open": incident_counts.get("OPEN", 0),
@@ -358,7 +561,7 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
         self.wfile.write(body)
 
@@ -366,8 +569,30 @@ class DashboardHandler(BaseHTTPRequestHandler):
         self.send_response(204)
         self.send_header("Access-Control-Allow-Origin", "*")
         self.send_header("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
-        self.send_header("Access-Control-Allow-Headers", "Content-Type")
+        self.send_header("Access-Control-Allow-Headers", "Content-Type, Authorization")
         self.end_headers()
+
+    def _read_json_body(self):
+        content_length = int(self.headers.get("Content-Length", 0))
+        raw_body = self.rfile.read(content_length) if content_length else b"{}"
+        body = _safe_json_loads(raw_body)
+        if body is None or not isinstance(body, dict):
+            return None
+        return body
+
+    def _auth_payload(self):
+        header = self.headers.get("Authorization", "")
+        if not header.startswith("Bearer "):
+            return None
+        return verify_token(header.removeprefix("Bearer ").strip())
+
+    def _require_auth(self, path):
+        if path in AUTH_PUBLIC_PATHS:
+            return True
+        if self._auth_payload():
+            return True
+        self._write_json({"error": "Authentication required"}, status=401)
+        return False
 
     def do_GET(self):
         parsed = urlparse(self.path)
@@ -376,6 +601,8 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
         if path == "/api/health":
             self._write_json({"status": "ok", "time": datetime.now(timezone.utc).isoformat()})
+            return
+        if not self._require_auth(path):
             return
         if path == "/api/mongo-status":
             self._write_json(check_mongo_status())
@@ -408,6 +635,9 @@ class DashboardHandler(BaseHTTPRequestHandler):
         if path == "/api/agent-activity":
             self._write_json(payload["agent_activity"])
             return
+        if path == "/api/scenarios":
+            self._write_json(payload["scenarios"])
+            return
         if path == "/api/dashboard":
             self._write_json(payload)
             return
@@ -416,12 +646,19 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
     def do_POST(self):
         path = urlparse(self.path).path
-        content_length = int(self.headers.get("Content-Length", 0))
-        try:
-            raw_body = self.rfile.read(content_length) if content_length else b"{}"
-            body = json.loads(raw_body.decode("utf-8"))
-        except Exception:
+        body = self._read_json_body()
+        if body is None:
             self._write_json({"error": "Invalid JSON body"}, status=400)
+            return
+
+        if path == "/api/login":
+            payload, status_code = authenticate_login(body)
+            self._write_json(payload, status=status_code)
+            return
+        if path == "/api/logout":
+            self._write_json({"ok": True})
+            return
+        if not self._require_auth(path):
             return
 
         if path == "/api/agents/status":
@@ -450,6 +687,14 @@ class DashboardHandler(BaseHTTPRequestHandler):
 
 
 def run():
+    try:
+        result = bootstrap_dashboard_user_from_env()
+        if result.get("bootstrapped"):
+            print(f"[dashboard-api] Dashboard user synced to Mongo: {result['username']}")
+        else:
+            print("[dashboard-api] Dashboard user bootstrap skipped: missing env credentials")
+    except Exception as exc:
+        print(f"[dashboard-api] Dashboard user bootstrap failed: {type(exc).__name__}: {exc}")
     server = ThreadingHTTPServer((HOST, PORT), DashboardHandler)
     print(f"[dashboard-api] Listening on http://{HOST}:{PORT}")
     server.serve_forever()

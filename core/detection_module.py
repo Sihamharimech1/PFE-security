@@ -1,6 +1,7 @@
 ﻿# core/detection_module.py
 
 from collections import defaultdict, deque
+from datetime import datetime, timezone
 import time
 from core.models import DetectionEvent
 from core.risk_scoring import score_detection_event
@@ -31,6 +32,32 @@ class DetectionModule:
         self.action_history = defaultdict(deque)
         self.role_violation_history = defaultdict(deque)
         self.role_inconsistency_history = defaultdict(deque)
+
+        self.cross_agent_window_seconds = 300
+        self.sensitive_path_markers = {
+            ".env",
+            "auth",
+            "credential",
+            "key",
+            "passwd",
+            "password",
+            "private",
+            "secret",
+            "shadow",
+            "token",
+        }
+        self.export_actions = {
+            "execute_action",
+            "run_command",
+            "save_report",
+            "write_data",
+            "write_report",
+        }
+        self.block_on_correlation_actions = {
+            "execute_action",
+            "run_command",
+            "write_data",
+        }
 
     @staticmethod
     def _event(
@@ -67,6 +94,114 @@ class DetectionModule:
     def _prune(window, now: float, window_seconds: int):
         while window and now - window[0] > window_seconds:
             window.popleft()
+
+    @staticmethod
+    def _timestamp_seconds(value):
+        if value is None:
+            return None
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                value = value.replace(tzinfo=timezone.utc)
+            return value.timestamp()
+        if isinstance(value, str):
+            try:
+                parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
+                if parsed.tzinfo is None:
+                    parsed = parsed.replace(tzinfo=timezone.utc)
+                return parsed.timestamp()
+            except ValueError:
+                return None
+        return None
+
+    def _is_sensitive_read(self, action, params):
+        if action != "read_data" or not isinstance(params, dict):
+            return False
+        target = str(params.get("path") or params.get("target") or "").lower()
+        if not target:
+            return False
+        return any(marker in target for marker in self.sensitive_path_markers)
+
+    def _is_export_action(self, action):
+        return action in self.export_actions
+
+    def should_block_cross_agent_action(self, action):
+        return action in self.block_on_correlation_actions
+
+    def correlate_cross_agent(self, request: dict, recent_logs: list, result=None) -> dict:
+        """
+        Detect a suspicious sequence across agents:
+        one agent reads sensitive data and another exports/writes/runs shortly after.
+        """
+        agent = request["agent_id"]
+        action = request["action"]
+        params = request.get("params", {})
+        result = result or {}
+
+        if not self._is_export_action(action):
+            return self._event(
+                status="NORMAL",
+                agent_id=agent,
+                details={"action": action, "rule": "cross_agent_correlation"},
+            )
+
+        result_status = result.get("status") if isinstance(result, dict) else None
+        if result_status not in (None, "success"):
+            return self._event(
+                status="NORMAL",
+                agent_id=agent,
+                details={"action": action, "rule": "cross_agent_correlation"},
+            )
+
+        now = datetime.now(timezone.utc).timestamp()
+        for log in recent_logs or []:
+            previous_agent = log.get("agent", {}).get("id")
+            previous_action = log.get("request", {}).get("action")
+            previous_params = log.get("request", {}).get("params", {})
+            if not previous_agent or previous_agent == agent:
+                continue
+            if not self._is_sensitive_read(previous_action, previous_params):
+                continue
+
+            previous_seconds = self._timestamp_seconds(log.get("timestamp"))
+            elapsed = None
+            if previous_seconds is not None:
+                elapsed = now - previous_seconds
+                if elapsed < 0 or elapsed > self.cross_agent_window_seconds:
+                    continue
+
+            print(
+                f"[ANOMALY DETECTED] Cross-agent correlation: "
+                f"{previous_agent} read sensitive data before {agent} performed {action}"
+            )
+            return self._event(
+                status="ANOMALY",
+                agent_id=agent,
+                rule_id="CROSS_AGENT_CORRELATION",
+                severity="HIGH",
+                recommended_action=(
+                    "SUSPEND"
+                    if self.should_block_cross_agent_action(action)
+                    else "ALERT"
+                ),
+                details={
+                    "action": action,
+                    "source_agent": previous_agent,
+                    "source_action": previous_action,
+                    "source_path": previous_params.get("path") or previous_params.get("target"),
+                    "target_agent": agent,
+                    "target_action": action,
+                    "target_params": params,
+                    "window_seconds": self.cross_agent_window_seconds,
+                    "elapsed_seconds": round(elapsed, 3) if elapsed is not None else None,
+                    "reason": "Sensitive read followed by export/write action from another agent.",
+                },
+            )
+
+        return self._event(
+            status="NORMAL",
+            agent_id=agent,
+            details={"action": action, "rule": "cross_agent_correlation"},
+        )
 
     def analyze(self, request: dict) -> dict:
         """

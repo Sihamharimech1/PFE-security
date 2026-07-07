@@ -4,6 +4,19 @@ import { SectionCard } from "../components/SectionCard";
 import { SeverityBadge } from "../components/SeverityBadge";
 import { formatTime } from "../lib/formatTime";
 
+function alertDetails(alert) {
+  const details = alert.security?.detection_details ?? {};
+  if (alert.security?.detection_rule === "CROSS_AGENT_CORRELATION") {
+    return `${details.source_agent ?? "-"} read ${details.source_path ?? "sensitive data"}; ${details.target_agent ?? alert.agent?.id ?? "-"} performed ${details.target_action ?? alert.request?.action ?? "-"}`;
+  }
+  if (details.reason) return details.reason;
+  if (details.pattern) return `Matched pattern: ${details.pattern}`;
+  if (details.count && details.threshold) {
+    return `${details.count}/${details.threshold} events in ${details.window_seconds}s`;
+  }
+  return "-";
+}
+
 export function AlertsPage({ alerts, incidents = [] }) {
   const incidentById = useMemo(() => {
     return new Map(incidents.map((incident) => [incident.incident_id, incident]));
@@ -23,6 +36,7 @@ export function AlertsPage({ alerts, incidents = [] }) {
                 <th>Role</th>
                 <th>Action</th>
                 <th>Detection rule</th>
+                <th>Details</th>
                 <th>Risk</th>
                 <th>Blocked reason</th>
                 <th>Response</th>
@@ -43,6 +57,7 @@ export function AlertsPage({ alerts, incidents = [] }) {
                     <td className="text-[var(--muted)]">{alert.agent?.role ?? "-"}</td>
                     <td className="font-mono text-xs">{alert.request?.action ?? "-"}</td>
                     <td>{alert.security?.detection_rule ?? "-"}</td>
+                    <td className="max-w-[360px] text-[var(--muted)]">{alertDetails(alert)}</td>
                     <td><OperationalBadge status={alert.security?.risk_level ?? alert.security?.severity ?? "LOW"} /></td>
                     <td>{alert.blocked?.reason ?? "-"}</td>
                     <td><SeverityBadge action={alert.security?.incident_action} /></td>

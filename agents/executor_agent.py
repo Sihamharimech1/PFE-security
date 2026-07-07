@@ -23,7 +23,7 @@ class ExecutorAgent(BaseAgent):
         self.llm = llm if llm is not None else LLMProvider()
 
     # ── Override: gate fires here, before anything else ────────────────
-    def execute_action(self, action_name: str, parameters: dict):
+    def execute_action(self, action_name: str, parameters: dict, coordination: dict = None):
 
         if self.status != "active":
             return {"status": "blocked",
@@ -38,14 +38,17 @@ class ExecutorAgent(BaseAgent):
                         "reason": f"'{action_name}' was not confirmed by operator."}
 
         # Safe to proceed - send to control module
-        return self.control.process_request({
+        request = {
             "agent_id": self.agent_id,
             "role":     self.role,
             "action":   action_name,
             "params":   parameters
-        })
+        }
+        if coordination:
+            request["coordination"] = coordination
+        return self.control.process_request(request)
 
-    def think_and_act(self, instruction: str):
+    def think_and_act(self, instruction: str, coordination=None):
         """LLM picks the action - then execute_action handles the gate."""
         prompt = f""" You are a routing agent for an Executor. 
         Your ONLY job is to classify the instruction. 
@@ -75,7 +78,7 @@ class ExecutorAgent(BaseAgent):
         print(decision)
 
         # Calls the overridden execute_action - gate is inside
-        return self.execute_action(decision["action"], decision["params"])
+        return self.execute_action(decision["action"], decision["params"], coordination=coordination)
 
     def _confirm(self, action: str, params: dict) -> bool:
         """

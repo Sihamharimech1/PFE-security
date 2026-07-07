@@ -38,6 +38,20 @@ function DetailRow({ label, value, mono = false }) {
   );
 }
 
+function isOrchestrated(log) {
+  return Boolean(log.coordination?.source === "orchestrator" || log.coordination?.correlation_id);
+}
+
+function CoordinationLabel({ coordination }) {
+  if (!coordination?.correlation_id) return <span className="text-[var(--muted)]">Direct request</span>;
+  if (!coordination.triggered_by) return <span>Source: Orchestrator</span>;
+  return (
+    <span>
+      Orchestrator: {coordination.triggered_by} triggered {coordination.triggered_agent}
+    </span>
+  );
+}
+
 export function LogsPage({ logs }) {
   const [query, setQuery] = useState("");
   const [agent, setAgent] = useState("all");
@@ -151,6 +165,7 @@ export function LogsPage({ logs }) {
                     <th>Role</th>
                     <th>Action</th>
                     <th>Params</th>
+                    <th>Coordination</th>
                     <th>Validation</th>
                     <th>RBAC</th>
                     <th>Filter</th>
@@ -191,6 +206,12 @@ export function LogsPage({ logs }) {
                       <td className="text-[var(--muted)]">{log.agent.role}</td>
                       <td className="font-mono text-xs">{log.request.action}</td>
                       <td className="font-mono text-xs text-[var(--muted)]">{paramsPreview(log.request.params)}</td>
+                      <td className="text-xs text-[var(--muted)]">
+                        <div className="flex flex-col gap-1">
+                          {isOrchestrated(log) ? <OperationalBadge status="ORCHESTRATED" /> : null}
+                          <CoordinationLabel coordination={log.coordination} />
+                        </div>
+                      </td>
                       <td><OperationalBadge status={log.security.validation_status} /></td>
                       <td><OperationalBadge status={log.security.rbac_status} /></td>
                       <td><OperationalBadge status={log.security.filter_status} /></td>
@@ -253,6 +274,12 @@ export function LogsPage({ logs }) {
               <DetailRow label="Blocked" value={selectedLog.blocked.is_blocked ? "YES" : "NO"} />
               <DetailRow label="Blocked reason" value={selectedLog.blocked.reason} />
               <DetailRow label="Final status" value={selectedLog.final_status} />
+              <DetailRow label="Request source" value={isOrchestrated(selectedLog) ? "Orchestrator" : "Direct agent request"} />
+              <DetailRow label="Triggered by" value={selectedLog.coordination?.triggered_by} />
+              <DetailRow label="Triggered agent" value={selectedLog.coordination?.triggered_agent} />
+              <DetailRow label="Workflow" value={selectedLog.coordination?.workflow} />
+              <DetailRow label="Stage" value={selectedLog.coordination?.stage} />
+              <DetailRow label="Correlation id" value={selectedLog.coordination?.correlation_id} mono />
             </div>
 
             <div className="json-block">

@@ -66,18 +66,21 @@ class BaseAgent:
         self._set_status("stopped", "kill switch")
 
     # ── execute_action ──────────────────────────────────────────────────
-    def execute_action(self, action_name: str, parameters: dict):
+    def execute_action(self, action_name: str, parameters: dict, coordination: dict = None):
         if self.status != "active":
             return {
                 "status": "blocked",
                 "reason": f"Agent '{self.agent_id}' is {self.status} - cannot execute actions."
             }
-        return self.control.process_request({
+        request = {
             "agent_id": self.agent_id,
             "role":     self.role,
             "action":   action_name,
             "params":   parameters
-        })
+        }
+        if coordination:
+            request["coordination"] = coordination
+        return self.control.process_request(request)
 
     def __repr__(self):
         return f"<Agent id={self.agent_id} role={self.role} status={self.status}>"

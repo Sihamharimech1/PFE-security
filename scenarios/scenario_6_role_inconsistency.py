@@ -3,7 +3,7 @@ from scenarios.scenario_support import build_system, latest_log, print_header, p
 
 def run():
     print_header(
-        5,
+        6,
         "Role identity inconsistency",
         "A registered agent claims a different role and is blocked before RBAC evaluation.",
     )

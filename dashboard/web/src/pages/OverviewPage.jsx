@@ -12,6 +12,22 @@ function short(value, max = 52) {
   return text.length > max ? `${text.slice(0, max)}...` : text;
 }
 
+function responseTimeLabel(metric) {
+  const seconds = metric?.seconds;
+  if (seconds === undefined || seconds === null) return "n/a";
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const minutes = metric?.minutes ?? seconds / 60;
+  if (minutes < 60) return `${minutes.toFixed(minutes >= 10 ? 0 : 1)}m`;
+  const hours = minutes / 60;
+  return `${hours.toFixed(hours >= 10 ? 0 : 1)}h`;
+}
+
+function responseTimeHint(metric, label) {
+  const sampleCount = metric?.sample_count ?? 0;
+  if (!sampleCount) return `waiting for ${label} lifecycle data`;
+  return `${sampleCount} incident${sampleCount > 1 ? "s" : ""} measured`;
+}
+
 export function OverviewPage({ data, onOpenIncidents }) {
   const unresolvedIncidents = useMemo(() => {
     return (data.incidents ?? []).filter((incident) =>
@@ -34,6 +50,7 @@ export function OverviewPage({ data, onOpenIncidents }) {
   const recentLogs = data.logs.slice(0, 10);
   const recentAlerts = data.alerts.slice(0, 8);
   const agents = data.agents.slice(0, 8);
+  const responseTimes = data.metrics?.response_times ?? {};
 
   return (
     <div className="space-y-5">
@@ -53,6 +70,21 @@ export function OverviewPage({ data, onOpenIncidents }) {
         <KpiCard label="Alerts" value={data.overview.active_alerts} hint="events requiring attention" accent="amber" />
         <KpiCard label="Blocked" value={data.overview.blocked_actions} hint="contained by policy" accent="red" />
         <KpiCard label="Agents" value={data.overview.total_agents} hint="registered identities" accent="green" />
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2">
+        <KpiCard
+          label="MTTA"
+          value={responseTimeLabel(responseTimes.mtta)}
+          hint={responseTimeHint(responseTimes.mtta, "acknowledged")}
+          accent="blue"
+        />
+        <KpiCard
+          label="MTTR"
+          value={responseTimeLabel(responseTimes.mttr)}
+          hint={responseTimeHint(responseTimes.mttr, "resolved")}
+          accent="green"
+        />
       </div>
 
       <SectionCard title="Latest logs" subtitle="The most recent runtime decisions are shown first">

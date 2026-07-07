@@ -100,6 +100,7 @@ class LogRepository:
         result_preview=None,
         is_blocked=False,
         blocked_reason=None,
+        coordination=None,
     ):
         log_document = {
             "timestamp": datetime.now(timezone.utc),
@@ -144,7 +145,9 @@ class LogRepository:
             "blocked": {
                 "is_blocked": is_blocked,
                 "reason": blocked_reason
-            }
+            },
+
+            "coordination": coordination or {}
         }
 
         result = self.collection.insert_one(log_document)

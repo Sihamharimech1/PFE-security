@@ -63,6 +63,7 @@ class ControlModule:
         agent_id = request["agent_id"]
         action = request["action"]
         params = request.get("params", {})
+        coordination = request.get("coordination") if isinstance(request.get("coordination"), dict) else None
         incident_result = self.incidents.handle(detection_event)
         decision = build_decision_metadata(
             agent_id=agent_id,
@@ -103,6 +104,7 @@ class ControlModule:
             result_preview=None,
             is_blocked=True,
             blocked_reason=blocked_reason,
+            coordination=coordination,
         )
         return {
             "status": "blocked",
@@ -155,6 +157,12 @@ class ControlModule:
                 and isinstance(request.get("params", {}), dict)
                 else {}
             )
+            coordination = (
+                request.get("coordination")
+                if isinstance(request, dict)
+                and isinstance(request.get("coordination"), dict)
+                else None
+            )
 
             print(f"[BLOCKED] Invalid request: {validation_error}")
             decision = build_decision_metadata(
@@ -187,6 +195,7 @@ class ControlModule:
                 result_preview=None,
                 is_blocked=True,
                 blocked_reason=validation_error,
+                coordination=coordination,
             )
             return {"status": "blocked", "reason": validation_error}
 
@@ -194,6 +203,7 @@ class ControlModule:
         claimed_role = request["role"]
         action = request["action"]
         params = request.get("params", {})
+        coordination = request.get("coordination") if isinstance(request.get("coordination"), dict) else None
 
         authoritative_role = self._authoritative_role(agent_id)
         if self._identity_enforcement_enabled() and not authoritative_role:
@@ -277,6 +287,7 @@ class ControlModule:
                 result_preview=None,
                 is_blocked=True,
                 blocked_reason=blocked_reason,
+                coordination=coordination,
             )
             response = {
                 "status": "blocked",
@@ -336,6 +347,7 @@ class ControlModule:
                 result_preview=None,
                 is_blocked=True,
                 blocked_reason="RBAC_DENIED",
+                coordination=coordination,
             )
             return "DENIED"
 
@@ -393,6 +405,7 @@ class ControlModule:
                 result_preview=None,
                 is_blocked=True,
                 blocked_reason=blocked_reason,
+                coordination=coordination,
             )
             return "BLOCKED_MALICIOUS_INPUT"
 
@@ -401,20 +414,98 @@ class ControlModule:
             self.detection.analyze(request),
             agent_id,
         )
+        recent_logs = []
+        if hasattr(self.detection, "correlate_cross_agent"):
+            try:
+                recent_logs = self.logs.get_recent(limit=200)
+            except Exception:
+                recent_logs = []
+            pre_execution_correlation = self._normalize_detection_event(
+                self.detection.correlate_cross_agent(
+                    request,
+                    recent_logs,
+                    result={"status": "success"},
+                ),
+                agent_id,
+            )
+            should_block_correlation = (
+                pre_execution_correlation.get("status") == "ANOMALY"
+                and hasattr(self.detection, "should_block_cross_agent_action")
+                and self.detection.should_block_cross_agent_action(action)
+            )
+            if should_block_correlation:
+                incident_result = self.incidents.handle(pre_execution_correlation)
+                blocked_reason = "CROSS_AGENT_CORRELATION"
+                decision = build_decision_metadata(
+                    agent_id=agent_id,
+                    role=role,
+                    action=action,
+                    validation_status="VALID",
+                    rbac_status="ALLOWED",
+                    filter_status="CLEAN",
+                    detection_event=pre_execution_correlation,
+                    incident_result=incident_result,
+                    final_status="BLOCKED",
+                    is_blocked=True,
+                    blocked_reason=blocked_reason,
+                )
+                self.logs.create_log(
+                    agent_id=agent_id,
+                    agent_role=role,
+                    action=action,
+                    params=params,
+                    validation_status="VALID",
+                    rbac_status="ALLOWED",
+                    filter_status="CLEAN",
+                    detection_status=pre_execution_correlation["status"],
+                    detection_rule=pre_execution_correlation.get("rule_id"),
+                    severity=decision["severity"],
+                    risk_score=decision["risk_score"],
+                    risk_level=decision["risk_level"],
+                    risk_factors=decision["risk_factors"],
+                    action_sensitivity=decision["action_sensitivity"],
+                    decision_explanation=decision["explanation"],
+                    recommended_action=decision["recommended_action"],
+                    detection_details=pre_execution_correlation.get("details"),
+                    incident_status=incident_result["status"],
+                    incident_action=incident_result["action"],
+                    incident_id=incident_result.get("incident_id"),
+                    incident_lifecycle_status=incident_result.get("lifecycle_status"),
+                    execution_status="NOT_EXECUTED",
+                    final_status="BLOCKED",
+                    result_preview=None,
+                    is_blocked=True,
+                    blocked_reason=blocked_reason,
+                    coordination=coordination,
+                )
+                return {
+                    "status": "blocked",
+                    "reason": blocked_reason,
+                    "incident_id": incident_result.get("incident_id"),
+                    "incident_action": incident_result.get("action"),
+                }
+
+        # 4. Execute
+        result = self.executor.execute(action, params)
+        if hasattr(self.detection, "correlate_cross_agent"):
+            cross_agent_event = self._normalize_detection_event(
+                self.detection.correlate_cross_agent(request, recent_logs, result=result),
+                agent_id,
+            )
+            if cross_agent_event.get("status") == "ANOMALY":
+                detection_event = cross_agent_event
+
         detection_status = detection_event["status"]
         incident_result = self.incidents.handle(detection_event)
 
         if detection_status == "ANOMALY":
             print("=" * 55)
-            print(f"[WARNING ANOMALY] Agent '{agent_id}' is repeating '{action}' too many times.")
-            print("[WARNING ANOMALY] Action still executed but flagged in logs.")
+            print(f"[WARNING ANOMALY] Agent '{agent_id}' triggered '{detection_event.get('rule_id')}'.")
+            print("[WARNING ANOMALY] Action executed but was escalated in supervision logs.")
             print("=" * 55)
             final_status = "EXECUTED_WITH_ALERT"
         else:
             final_status = "EXECUTED"
-
-        # 4. Execute
-        result = self.executor.execute(action, params)
 
         execution_status = "SUCCESS" if result.get("status") == "success" else "FAILED"
         result_preview = str(result)[:500]
@@ -459,6 +550,7 @@ class ControlModule:
             result_preview=result_preview,
             is_blocked=False,
             blocked_reason=None,
+            coordination=coordination,
         )
 
         print("\n[RESULT]")

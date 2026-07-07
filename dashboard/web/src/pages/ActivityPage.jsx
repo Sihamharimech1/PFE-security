@@ -3,6 +3,10 @@ import { OperationalBadge } from "../components/OperationalBadge";
 import { SectionCard } from "../components/SectionCard";
 import { formatTime } from "../lib/formatTime";
 
+function isOrchestrated(log) {
+  return Boolean(log.coordination?.source === "orchestrator" || log.coordination?.correlation_id);
+}
+
 export function ActivityPage({ logs }) {
   const activity = logs
     .slice()
@@ -107,7 +111,14 @@ export function ActivityPage({ logs }) {
               <div className="flex items-start justify-between gap-3">
                 <div>
                   <p className="text-sm font-semibold text-[var(--text)]">{log.agent.id} / {log.request.action}</p>
+                  {isOrchestrated(log) ? (
+                    <p className="mt-1 text-xs text-[var(--muted)]">
+                      Source: Orchestrator - {log.coordination.workflow}
+                      {log.coordination.triggered_by ? ` - triggered by ${log.coordination.triggered_by}` : ""}
+                    </p>
+                  ) : null}
                   <div className="mt-2 flex flex-wrap gap-2">
+                    {isOrchestrated(log) ? <OperationalBadge status="ORCHESTRATED" /> : null}
                     <OperationalBadge status={log.security.detection_status} />
                     <OperationalBadge status={log.final_status} />
                   </div>

@@ -4,7 +4,7 @@ from scenarios.scenario_1_normal import run as run_scenario_1
 from scenarios.scenario_2_rbac_violation import run as run_scenario_2
 from scenarios.scenario_3_behavior_drift import run as run_scenario_3
 from scenarios.scenario_4_malicious_input import run as run_scenario_4
-from scenarios.scenario_5_role_inconsistency import run as run_scenario_5
+from scenarios.scenario_6_role_inconsistency import run as run_scenario_6
 
 
 class TestOfficialScenarios(unittest.TestCase):
@@ -25,8 +25,8 @@ class TestOfficialScenarios(unittest.TestCase):
         system = run_scenario_4()
         self.assertEqual(system["logs"].entries[-1]["incident_action"], "ALERT")
 
-    def test_scenario_5_role_inconsistency(self):
-        system = run_scenario_5()
+    def test_scenario_6_role_inconsistency(self):
+        system = run_scenario_6()
         self.assertEqual(
             system["logs"].entries[-1]["detection_rule"],
             "ROLE_IDENTITY_MISMATCH",

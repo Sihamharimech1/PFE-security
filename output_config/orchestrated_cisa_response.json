@@ -1,0 +1,7 @@
+{
+  "workflow": "orchestrated_url_report",
+  "source_url": "https://www.cisa.gov/sites/default/files/feeds/known_exploited_vulnerabilities.json",
+  "action": "track_kev_remediation",
+  "priority": "high",
+  "created_at": "2026-07-06T23:32:59.688272+00:00"
+}

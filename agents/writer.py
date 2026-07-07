@@ -23,7 +23,7 @@ class WriterAgent(BaseAgent):
         super().__init__(agent_id, "writer", control)
         self.llm = LLMProvider()
 
-    def think_and_act(self, analyst_output: str, report_type: str = "security"):
+    def think_and_act(self, analyst_output: str, report_type: str = "security", coordination=None):
         """
         Main entry point.
 
@@ -88,5 +88,6 @@ Return ONLY this JSON, no explanation, no markdown:
 
         return self.execute_action(
             decision["action"],
-            decision["params"]
+            decision["params"],
+            coordination=coordination,
         )

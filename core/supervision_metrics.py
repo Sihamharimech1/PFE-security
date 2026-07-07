@@ -48,6 +48,74 @@ def _parse_timestamp(value):
         return None
 
 
+def _first_status_at(incident, status):
+    history = incident.get("history", []) if isinstance(incident, dict) else []
+    for entry in history:
+        if not isinstance(entry, dict) or entry.get("status") != status:
+            continue
+        changed_at = _parse_timestamp(entry.get("changed_at"))
+        if changed_at:
+            return changed_at
+    if incident.get("status") == status:
+        return _parse_timestamp(incident.get("updated_at"))
+    return None
+
+
+def _seconds_between(start, end):
+    if not start or not end or end < start:
+        return None
+    return (end - start).total_seconds()
+
+
+def _duration_summary(seconds_values):
+    seconds_values = [
+        value
+        for value in seconds_values
+        if isinstance(value, (int, float)) and value >= 0
+    ]
+    if not seconds_values:
+        return {
+            "seconds": None,
+            "minutes": None,
+            "sample_count": 0,
+        }
+    average_seconds = sum(seconds_values) / len(seconds_values)
+    return {
+        "seconds": round(average_seconds, 2),
+        "minutes": round(average_seconds / 60, 2),
+        "sample_count": len(seconds_values),
+    }
+
+
+def calculate_incident_response_metrics(incidents):
+    """Calculate SOC response timings from incident lifecycle history."""
+    incidents = incidents or []
+    acknowledge_durations = []
+    resolve_durations = []
+
+    for incident in incidents:
+        if not isinstance(incident, dict):
+            continue
+        created_at = _parse_timestamp(incident.get("created_at"))
+        acknowledged_at = _first_status_at(incident, "ACKNOWLEDGED")
+        resolved_at = _first_status_at(incident, "RESOLVED")
+
+        ack_seconds = _seconds_between(created_at, acknowledged_at)
+        resolve_seconds = _seconds_between(created_at, resolved_at)
+        if ack_seconds is not None:
+            acknowledge_durations.append(ack_seconds)
+        if resolve_seconds is not None:
+            resolve_durations.append(resolve_seconds)
+
+    return {
+        "mtta": _duration_summary(acknowledge_durations),
+        "mttr": _duration_summary(resolve_durations),
+        "incident_sample_size": len(
+            [incident for incident in incidents if isinstance(incident, dict)]
+        ),
+    }
+
+
 def calculate_agent_activity(logs, agents, bucket_minutes=5, max_buckets=24):
     """Build compact server-side activity and risk series for each agent."""
     logs = logs or []
@@ -142,7 +210,7 @@ def calculate_agent_activity(logs, agents, bucket_minutes=5, max_buckets=24):
     return result
 
 
-def calculate_supervision_metrics(logs, agents):
+def calculate_supervision_metrics(logs, agents, incidents=None):
     logs = logs or []
     agents = agents or []
     total_logs = len(logs)
@@ -220,4 +288,5 @@ def calculate_supervision_metrics(logs, agents):
         ],
         "top_risky_agent": top_risky_agent,
         "latest_event_at": _nested(logs[0], "timestamp") if logs else None,
+        "response_times": calculate_incident_response_metrics(incidents or []),
     }
